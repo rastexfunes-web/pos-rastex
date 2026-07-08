@@ -1079,20 +1079,20 @@ export default function App() {
               ) : (
                 <div className="space-y-2 mb-4">
                   {carrito.map((i) => (
-                    <div key={i.id} className="flex items-center justify-between text-sm gap-2">
+                    <div key={i.cartId} className="flex items-center justify-between text-sm gap-2">
                       <div className="flex-1 min-w-0">
                         <p className="truncate font-medium">{i.nombre}</p>
                         <p className="font-mono text-xs text-black/40">{money(i.precio)} c/u</p>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
-                        <button onClick={() => cambiarCantidad(i.id, -1)} className="w-6 h-6 rounded bg-black/5 hover:bg-black/10 flex items-center justify-center">
+                        <button onClick={() => cambiarCantidad(i.cartId, -1)} className="w-6 h-6 rounded bg-black/5 hover:bg-black/10 flex items-center justify-center">
                           <Minus size={12} />
                         </button>
                         <span className="w-5 text-center font-mono">{i.cantidad}</span>
-                        <button onClick={() => cambiarCantidad(i.id, 1)} className="w-6 h-6 rounded bg-black/5 hover:bg-black/10 flex items-center justify-center">
+                        <button onClick={() => cambiarCantidad(i.cartId, 1)} className="w-6 h-6 rounded bg-black/5 hover:bg-black/10 flex items-center justify-center">
                           <Plus size={12} />
                         </button>
-                        <button onClick={() => quitarDelCarrito(i.id)} className="w-6 h-6 rounded hover:bg-red-50 text-red-600 flex items-center justify-center ml-1">
+                        <button onClick={() => quitarDelCarrito(i.cartId)} className="w-6 h-6 rounded hover:bg-red-50 text-red-600 flex items-center justify-center ml-1">
                           <Trash2 size={13} />
                         </button>
                       </div>
