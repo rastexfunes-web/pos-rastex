@@ -216,6 +216,7 @@ export default function App() {
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
   const [verCuentaColegio, setVerCuentaColegio] = useState(false);
+  const [verComision, setVerComision] = useState(false);
   const [montoApertura, setMontoApertura] = useState("");
   const [errorCaja, setErrorCaja] = useState("");
   const [mostrarCierre, setMostrarCierre] = useState(false);
@@ -271,6 +272,7 @@ export default function App() {
     setFechaDesde("");
     setFechaHasta("");
     setVerCuentaColegio(false);
+    setVerComision(false);
     cargarNegocioData(negocioId).then((val) => {
       if (cancelado) return;
       setData((prev) => ({ ...prev, [negocioId]: val }));
@@ -636,27 +638,52 @@ export default function App() {
     return calcularResumenCategoria(ventasHoy, negocioData.productos);
   }, [ventasHoy, negocioData.productos, negocioId]);
 
-  const ventasVista = useMemo(() => {
-    const ventasSinColegio = negocioData.ventas.filter((v) => v.tipoPago !== "colegio");
+  function filtrarPorPeriodo(ventas) {
     if (vistaTotales === "hoy") {
-      return ventasSinColegio.filter((v) => v.fecha.slice(0, 10) === todayKey());
+      return ventas.filter((v) => v.fecha.slice(0, 10) === todayKey());
     }
     if (vistaTotales === "dia") {
-      return ventasSinColegio.filter((v) => v.fecha.slice(0, 10) === fechaFiltro);
+      return ventas.filter((v) => v.fecha.slice(0, 10) === fechaFiltro);
     }
     if (vistaTotales === "30dias") {
       const limite = Date.now() - 30 * 24 * 60 * 60 * 1000;
-      return ventasSinColegio.filter((v) => new Date(v.fecha).getTime() >= limite);
+      return ventas.filter((v) => new Date(v.fecha).getTime() >= limite);
     }
-    return ventasSinColegio.filter((v) => {
+    return ventas.filter((v) => {
       const dia = v.fecha.slice(0, 10);
       if (fechaDesde && dia < fechaDesde) return false;
       if (fechaHasta && dia > fechaHasta) return false;
       return true;
     });
+  }
+
+  const ventasVista = useMemo(() => {
+    const ventasSinColegio = negocioData.ventas.filter((v) => v.tipoPago !== "colegio");
+    return filtrarPorPeriodo(ventasSinColegio);
   }, [negocioData.ventas, vistaTotales, fechaFiltro, fechaDesde, fechaHasta]);
 
   const resumenVista = useMemo(() => calcularResumenPago(ventasVista), [ventasVista]);
+
+  const totalUniformesComision = useMemo(() => {
+    if (negocioId !== "colegio") return 0;
+    const mapaCategoria = {};
+    negocioData.productos.forEach((p) => {
+      mapaCategoria[p.id] = p.categoria;
+    });
+    const ventasPeriodo = filtrarPorPeriodo(negocioData.ventas); // incluye Cuenta Colegio
+    let total = 0;
+    ventasPeriodo.forEach((v) => {
+      v.items.forEach((i) => {
+        if (mapaCategoria[i.id] === "uniforme") {
+          const monto = i.precio * i.cantidad;
+          total += monto * (1 - (v.descuentoPct || 0) / 100);
+        }
+      });
+    });
+    return total;
+  }, [negocioData.ventas, negocioData.productos, negocioId, vistaTotales, fechaFiltro, fechaDesde, fechaHasta]);
+
+  const comisionLuciana = totalUniformesComision * 0.05;
 
   const ventasCuentaColegioTodas = useMemo(
     () => negocioData.ventas.filter((v) => v.tipoPago === "colegio"),
@@ -1660,6 +1687,34 @@ export default function App() {
                 </div>
                 <span className="font-mono font-bold text-lg text-amber-800">{money(totalCuentaColegioTodas)}</span>
               </button>
+            )}
+
+            {negocioId === "colegio" && (
+              <button
+                onClick={() => setVerComision((v) => !v)}
+                className="w-full bg-violet-50 border border-violet-200 rounded-xl p-4 mb-6 flex items-center justify-between hover:bg-violet-100 transition"
+              >
+                <div className="text-left">
+                  <p className="font-semibold text-sm text-violet-900">Comisión Luciana (5% sobre uniformes)</p>
+                  <p className="text-xs text-violet-700/70">
+                    {vistaTotales === "hoy"
+                      ? "Del día de hoy"
+                      : vistaTotales === "dia"
+                      ? "Del " + new Date(fechaFiltro + "T00:00:00").toLocaleDateString("es-AR")
+                      : vistaTotales === "30dias"
+                      ? "Últimos 30 días"
+                      : tituloHistorico().replace("Informe ", "")}
+                    {" · incluye Cuenta Colegio"}
+                  </p>
+                </div>
+                <span className="font-mono font-bold text-lg text-violet-800">{money(comisionLuciana)}</span>
+              </button>
+            )}
+            {verComision && negocioId === "colegio" && (
+              <div className="bg-white rounded-xl shadow-sm border border-black/5 p-4 mb-6 flex items-center justify-between text-sm">
+                <span className="text-black/50">Total vendido en Uniformes (base del cálculo)</span>
+                <span className="font-mono font-semibold">{money(totalUniformesComision)}</span>
+              </div>
             )}
 
             {resumenCategoriaVista && (
