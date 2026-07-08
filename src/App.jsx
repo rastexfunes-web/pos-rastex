@@ -3,26 +3,7 @@ import {
   Store, Package, BarChart3, Plus, Minus, Trash2, Banknote, CreditCard,
   ArrowLeftRight, ChevronDown, Pencil, X, Check, Wallet, QrCode, LogOut, Building2, Printer,
 } from "lucide-react";
-
-// Reemplaza el window.storage del entorno de Claude por localStorage real del navegador.
-const storage = {
-  async get(key) {
-    try {
-      const value = localStorage.getItem(key);
-      return value === null ? null : { key, value };
-    } catch (e) {
-      return null;
-    }
-  },
-  async set(key, value) {
-    try {
-      localStorage.setItem(key, value);
-      return { key, value };
-    } catch (e) {
-      return null;
-    }
-  },
-};
+import { storage } from "./firebase.js";
 
 const NEGOCIOS = [
   { id: "colegio", nombre: "Colegio", color: "#3F6C51" },
