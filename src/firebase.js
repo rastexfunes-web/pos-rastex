@@ -1,5 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, getDoc, setDoc } from "firebase/firestore";
+import { getAuth, signInWithEmailAndPassword, signOut } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBcaNMKlCo83RgTy7xrMZe5bvZADFEdODk",
@@ -12,6 +13,29 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
+export const auth = getAuth(app);
+
+// Mapea el PIN de 4 dígitos que escribe la persona a un usuario real de Firebase Auth.
+const CREDENCIALES_POR_PIN = {
+  "0000": { email: "marcelo@rastexpos.local", password: "Rastex-Marcelo-26!" },
+  "1234": { email: "luciana@rastexpos.local", password: "Rastex-Luciana-26!" },
+};
+
+export async function loginConPin(pin) {
+  const cred = CREDENCIALES_POR_PIN[pin];
+  if (!cred) return null;
+  try {
+    const res = await signInWithEmailAndPassword(auth, cred.email, cred.password);
+    return res.user;
+  } catch (e) {
+    console.error("Error de login:", e);
+    return null;
+  }
+}
+
+export function logout() {
+  return signOut(auth);
+}
 
 // Misma "forma" que el storage anterior (get/set con key/value),
 // pero ahora leyendo y escribiendo de verdad en Firestore.
