@@ -3,7 +3,6 @@ import {
   Store, Package, BarChart3, Plus, Minus, Trash2, Banknote, CreditCard,
   ArrowLeftRight, ChevronDown, Pencil, X, Check, Wallet, QrCode, LogOut, Building2, Printer,
 } from "lucide-react";
-import { storage, loginConPin, logout } from "./firebase.js";
 
 const NEGOCIOS = [
   { id: "colegio", nombre: "Colegio", color: "#3F6C51" },
@@ -34,16 +33,18 @@ const PAGOS = [
   { id: "mercadopago", label: "Mercado Pago", icon: QrCode },
 ];
 
+const UMBRAL_STOCK_BAJO = 5;
+
 const TABS = [
   { id: "venta", label: "Vender", icon: Store },
   { id: "stock", label: "Stock", icon: Package },
   { id: "informes", label: "Informes", icon: BarChart3 },
 ];
 
-const USUARIOS_POR_UID = {
-  H2y2uvY7g0d4vpZgOH6MERC6mEI2: { nombre: "Marcelo", rol: "dueno" },
-  QojAJ4SZlzPjPGe9N9BJmVwdAIt1: { nombre: "Luciana", rol: "empleado", negociosPermitidos: ["colegio"] },
-};
+const USUARIOS = [
+  { nombre: "Marcelo", pin: "0000", rol: "dueno" },
+  { nombre: "Luciana", pin: "1234", rol: "empleado", negociosPermitidos: ["colegio"] },
+];
 
 function seedProductos(negocioId) {
   const base = {
@@ -104,13 +105,29 @@ function stockTotal(p) {
   return tieneTalles(p) ? p.talles.reduce((acc, t) => acc + t.stock, 0) : p.stock;
 }
 
+function itemsStockBajo(productos) {
+  const items = [];
+  productos.forEach((p) => {
+    if (tieneTalles(p)) {
+      p.talles.forEach((t) => {
+        if (t.stock < UMBRAL_STOCK_BAJO) {
+          items.push({ nombre: p.nombre + " (talle " + t.talle + ")", sku: p.sku, categoria: p.categoria, stock: t.stock });
+        }
+      });
+    } else if (p.stock < UMBRAL_STOCK_BAJO) {
+      items.push({ nombre: p.nombre, sku: p.sku, categoria: p.categoria, stock: p.stock });
+    }
+  });
+  return items.sort((a, b) => a.stock - b.stock);
+}
+
 function todayKey() {
   return new Date().toISOString().slice(0, 10);
 }
 
 function cargarNegocioData(id) {
-  return storage
-    .get("negocio:" + id)
+  return window.storage
+    .get("negocio:" + id, false)
     .then((res) => {
       if (res) {
         const parsed = JSON.parse(res.value);
@@ -128,23 +145,14 @@ function cargarNegocioData(id) {
 function LoginScreen({ onLogin }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
-  const [cargando, setCargando] = useState(false);
 
-  async function intentarPin() {
-    setCargando(true);
-    setError("");
-    const user = await loginConPin(pin);
-    setCargando(false);
-    if (!user) {
+  function intentarPin() {
+    const usuario = USUARIOS.find((u) => u.pin === pin);
+    if (usuario) {
+      onLogin(usuario);
+    } else {
       setError("PIN incorrecto");
-      return;
     }
-    const datosUsuario = USUARIOS_POR_UID[user.uid];
-    if (!datosUsuario) {
-      setError("Este usuario no tiene un rol asignado. Avisale a Marcelo.");
-      return;
-    }
-    onLogin(datosUsuario);
   }
 
   return (
@@ -168,10 +176,10 @@ function LoginScreen({ onLogin }) {
         {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
         <button
           onClick={intentarPin}
-          disabled={pin.length !== 4 || cargando}
+          disabled={pin.length !== 4}
           className="w-full py-2.5 rounded-lg bg-blue-600 text-white font-bold text-sm disabled:opacity-30 hover:brightness-110"
         >
-          {cargando ? "Verificando..." : "Ingresar"}
+          Ingresar
         </button>
       </div>
     </div>
@@ -207,6 +215,7 @@ export default function App() {
   const [fechaHasta, setFechaHasta] = useState("");
   const [verCuentaColegio, setVerCuentaColegio] = useState(false);
   const [verComision, setVerComision] = useState(false);
+  const [verStockBajo, setVerStockBajo] = useState(false);
   const [montoApertura, setMontoApertura] = useState("");
   const [errorCaja, setErrorCaja] = useState("");
   const [mostrarCierre, setMostrarCierre] = useState(false);
@@ -231,7 +240,6 @@ export default function App() {
   }
 
   function cerrarSesion() {
-    logout();
     setUsuario(null);
     setMenuAbierto(false);
   }
@@ -264,6 +272,7 @@ export default function App() {
     setFechaHasta("");
     setVerCuentaColegio(false);
     setVerComision(false);
+    setVerStockBajo(false);
     cargarNegocioData(negocioId).then((val) => {
       if (cancelado) return;
       setData((prev) => ({ ...prev, [negocioId]: val }));
@@ -279,16 +288,11 @@ export default function App() {
 
   const negocioData = data[negocioId] || { productos: [], ventas: [], caja: cajaCerradaDefault() };
   const caja = negocioData.caja || cajaCerradaDefault();
+  const listaStockBajo = useMemo(() => itemsStockBajo(negocioData.productos), [negocioData.productos]);
 
   function persist(next) {
     setData((prev) => ({ ...prev, [negocioId]: next }));
-    storage.set(storageKey, JSON.stringify(next)).then((res) => {
-      if (!res) {
-        console.error("No se pudo guardar en Firestore (storage.set devolvió null). Revisá la consola arriba por el error real.");
-      } else {
-        console.log("Guardado OK en Firestore:", storageKey);
-      }
-    });
+    window.storage.set(storageKey, JSON.stringify(next), false).catch(() => {});
   }
 
   function agregarAlCarrito(producto, talle, precioUsado) {
@@ -1052,7 +1056,7 @@ export default function App() {
                           >
                             <div className="flex items-center justify-between">
                               <span className="font-mono font-bold text-blue-600">{money(p.precio)}</span>
-                              <span className={"text-xs font-mono " + (p.stock <= 3 ? "text-red-600" : "text-black/40")}>
+                              <span className={"text-xs font-mono " + (p.stock < UMBRAL_STOCK_BAJO ? "text-red-600" : "text-black/40")}>
                                 {p.stock <= 0 ? "sin stock" : "x" + p.stock}
                               </span>
                             </div>
@@ -1214,6 +1218,76 @@ export default function App() {
           </div>
             )}
           </div>
+        ) : tab === "stock" && verStockBajo ? (
+          <div>
+            <div className="flex items-center justify-between mb-4 no-print">
+              <h1 className="text-xl font-bold">Stock bajo (menos de {UMBRAL_STOCK_BAJO} unidades) — {negocio.nombre}</h1>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => window.print()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-black/15 text-xs font-medium text-black/60 hover:bg-black/5"
+                >
+                  <Printer size={14} /> Imprimir
+                </button>
+                <button
+                  onClick={() => setVerStockBajo(false)}
+                  className="text-sm text-blue-600 font-medium hover:underline"
+                >
+                  ← Volver a Stock
+                </button>
+              </div>
+            </div>
+            <h1 className="hidden print:block text-xl font-bold mb-4">
+              Stock bajo (menos de {UMBRAL_STOCK_BAJO} unidades) — {negocio.nombre}
+            </h1>
+
+            <div className="bg-white rounded-xl shadow-sm border border-black/5 overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-black/5 text-left text-xs uppercase tracking-wide text-black/40">
+                  <tr>
+                    <th className="px-4 py-2.5">Producto</th>
+                    {negocioId === "colegio" && <th className="px-4 py-2.5">Categoría</th>}
+                    <th className="px-4 py-2.5">SKU</th>
+                    <th className="px-4 py-2.5 text-right">Stock</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {listaStockBajo.length === 0 ? (
+                    <tr>
+                      <td colSpan={negocioId === "colegio" ? 4 : 3} className="px-4 py-6 text-center text-sm text-black/40">
+                        No hay productos con stock bajo. 🎉
+                      </td>
+                    </tr>
+                  ) : (
+                    listaStockBajo.map((it, idx) => {
+                      const cat = CATEGORIAS.find((c) => c.id === it.categoria);
+                      return (
+                        <tr key={idx} className="border-t border-black/5">
+                          <td className="px-4 py-2.5 font-medium">{it.nombre}</td>
+                          {negocioId === "colegio" && (
+                            <td className="px-4 py-2.5">
+                              {cat ? (
+                                <span
+                                  className="inline-block text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded text-white"
+                                  style={{ backgroundColor: cat.color }}
+                                >
+                                  {cat.label}
+                                </span>
+                              ) : (
+                                <span className="text-black/30 text-xs">—</span>
+                              )}
+                            </td>
+                          )}
+                          <td className="px-4 py-2.5 font-mono text-black/50">{it.sku}</td>
+                          <td className="px-4 py-2.5 text-right font-mono font-semibold text-red-600">{it.stock}</td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         ) : tab === "stock" ? (
           <div>
             <div className="flex items-center justify-between mb-4">
@@ -1225,6 +1299,18 @@ export default function App() {
                 <Printer size={14} /> Imprimir
               </button>
             </div>
+
+            {listaStockBajo.length > 0 && (
+              <button
+                onClick={() => setVerStockBajo(true)}
+                className="no-print w-full bg-red-50 border border-red-200 rounded-xl p-4 mb-4 flex items-center justify-between hover:bg-red-100 transition"
+              >
+                <p className="font-semibold text-sm text-red-800">
+                  ⚠ {listaStockBajo.length} producto{listaStockBajo.length === 1 ? "" : "s"} con stock bajo (menos de {UMBRAL_STOCK_BAJO} unidades)
+                </p>
+                <span className="text-xs text-red-700 font-medium">Ver / imprimir →</span>
+              </button>
+            )}
 
             <div className="bg-white rounded-xl shadow-sm border border-black/5 overflow-hidden mb-6">
               <table className="w-full text-sm">
@@ -1328,7 +1414,7 @@ export default function App() {
                         <td className="px-4 py-2.5 text-right font-mono">
                           {tieneTalles(p) ? <span className="text-black/30 text-xs">Ver abajo</span> : money(p.precio)}
                         </td>
-                        <td className={"px-4 py-2.5 text-right font-mono font-semibold " + (stockTotal(p) <= 3 ? "text-red-600" : "")}>
+                        <td className={"px-4 py-2.5 text-right font-mono font-semibold " + (stockTotal(p) < UMBRAL_STOCK_BAJO ? "text-red-600" : "")}>
                           {stockTotal(p)}
                         </td>
                         <td className="px-4 py-2.5 no-print">
@@ -1380,7 +1466,7 @@ export default function App() {
                                   <div key={t.talle} className="flex items-center gap-2 text-sm">
                                     <span className="w-16 shrink-0 font-medium text-xs text-black/60">Talle {t.talle}</span>
                                     <span className="font-mono w-20 shrink-0">{money(t.precio)}</span>
-                                    <span className={"font-mono w-16 shrink-0 " + (t.stock <= 3 ? "text-red-600" : "text-black/50")}>x{t.stock}</span>
+                                    <span className={"font-mono w-16 shrink-0 " + (t.stock < UMBRAL_STOCK_BAJO ? "text-red-600" : "text-black/50")}>x{t.stock}</span>
                                     <button onClick={() => iniciarEdicionTalle(p.id, t)} className="w-6 h-6 rounded hover:bg-black/5 flex items-center justify-center text-black/40 shrink-0">
                                       <Pencil size={12} />
                                     </button>
