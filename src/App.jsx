@@ -3,6 +3,7 @@ import {
   Store, Package, BarChart3, Plus, Minus, Trash2, Banknote, CreditCard,
   ArrowLeftRight, ChevronDown, Pencil, X, Check, Wallet, QrCode, LogOut, Building2, Printer,
 } from "lucide-react";
+import { storage, loginConPin, logout } from "./firebase.js";
 
 const NEGOCIOS = [
   { id: "colegio", nombre: "Colegio", color: "#3F6C51" },
@@ -41,10 +42,10 @@ const TABS = [
   { id: "informes", label: "Informes", icon: BarChart3 },
 ];
 
-const USUARIOS = [
-  { nombre: "Marcelo", pin: "0000", rol: "dueno" },
-  { nombre: "Luciana", pin: "1234", rol: "empleado", negociosPermitidos: ["colegio"] },
-];
+const USUARIOS_POR_UID = {
+  H2y2uvY7g0d4vpZgOH6MERC6mEI2: { nombre: "Marcelo", rol: "dueno" },
+  QojAJ4SZlzPjPGe9N9BJmVwdAIt1: { nombre: "Luciana", rol: "empleado", negociosPermitidos: ["colegio"] },
+};
 
 function seedProductos(negocioId) {
   const base = {
@@ -126,8 +127,8 @@ function todayKey() {
 }
 
 function cargarNegocioData(id) {
-  return window.storage
-    .get("negocio:" + id, false)
+  return storage
+    .get("negocio:" + id)
     .then((res) => {
       if (res) {
         const parsed = JSON.parse(res.value);
@@ -145,14 +146,23 @@ function cargarNegocioData(id) {
 function LoginScreen({ onLogin }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
+  const [cargando, setCargando] = useState(false);
 
-  function intentarPin() {
-    const usuario = USUARIOS.find((u) => u.pin === pin);
-    if (usuario) {
-      onLogin(usuario);
-    } else {
+  async function intentarPin() {
+    setCargando(true);
+    setError("");
+    const user = await loginConPin(pin);
+    setCargando(false);
+    if (!user) {
       setError("PIN incorrecto");
+      return;
     }
+    const datosUsuario = USUARIOS_POR_UID[user.uid];
+    if (!datosUsuario) {
+      setError("Este usuario no tiene un rol asignado. Avisale a Marcelo.");
+      return;
+    }
+    onLogin(datosUsuario);
   }
 
   return (
@@ -176,10 +186,10 @@ function LoginScreen({ onLogin }) {
         {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
         <button
           onClick={intentarPin}
-          disabled={pin.length !== 4}
+          disabled={pin.length !== 4 || cargando}
           className="w-full py-2.5 rounded-lg bg-blue-600 text-white font-bold text-sm disabled:opacity-30 hover:brightness-110"
         >
-          Ingresar
+          {cargando ? "Verificando..." : "Ingresar"}
         </button>
       </div>
     </div>
@@ -240,6 +250,7 @@ export default function App() {
   }
 
   function cerrarSesion() {
+    logout();
     setUsuario(null);
     setMenuAbierto(false);
   }
@@ -292,7 +303,13 @@ export default function App() {
 
   function persist(next) {
     setData((prev) => ({ ...prev, [negocioId]: next }));
-    window.storage.set(storageKey, JSON.stringify(next), false).catch(() => {});
+    storage.set(storageKey, JSON.stringify(next)).then((res) => {
+      if (!res) {
+        console.error("No se pudo guardar en Firestore (storage.set devolvió null). Revisá la consola arriba por el error real.");
+      } else {
+        console.log("Guardado OK en Firestore:", storageKey);
+      }
+    });
   }
 
   function agregarAlCarrito(producto, talle, precioUsado) {
