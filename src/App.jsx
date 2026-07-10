@@ -205,6 +205,7 @@ export default function App() {
   const [carrito, setCarrito] = useState([]);
   const [pagoSel, setPagoSel] = useState("efectivo");
   const [descuentoPct, setDescuentoPct] = useState("");
+  const [recargoPct, setRecargoPct] = useState("");
   const [pagoMultiple, setPagoMultiple] = useState(false);
   const [montosPago, setMontosPago] = useState({ efectivo: "", transferencia: "", credito: "", debito: "", mercadopago: "" });
   const [menuAbierto, setMenuAbierto] = useState(false);
@@ -262,6 +263,7 @@ export default function App() {
     setLoading(true);
     setCarrito([]);
     setDescuentoPct("");
+    setRecargoPct("");
     setPagoMultiple(false);
     setMontosPago({ efectivo: "", transferencia: "", credito: "", debito: "", mercadopago: "" });
     setMostrarCierre(false);
@@ -344,7 +346,9 @@ export default function App() {
   const totalCarrito = carrito.reduce((acc, i) => acc + i.precio * i.cantidad, 0);
   const descuentoNum = Math.min(100, Math.max(0, Number(descuentoPct) || 0));
   const montoDescuento = totalCarrito * (descuentoNum / 100);
-  const totalConDescuento = totalCarrito - montoDescuento;
+  const recargoNum = Math.min(100, Math.max(0, Number(recargoPct) || 0));
+  const montoRecargo = totalCarrito * (recargoNum / 100);
+  const totalConDescuento = totalCarrito - montoDescuento + montoRecargo;
 
   const totalAsignadoMultiple = PAGOS.reduce((acc, p) => acc + (Number(montosPago[p.id]) || 0), 0);
   const diferenciaMultiple = Math.round((totalConDescuento - totalAsignadoMultiple) * 100) / 100;
@@ -380,6 +384,7 @@ export default function App() {
       items: carrito,
       subtotal: totalCarrito,
       descuentoPct: descuentoNum,
+      recargoPct: recargoNum,
       total: totalConDescuento,
       tipoPago: tipoPagoForzado || (pagoMultiple ? "mixto" : pagoSel),
       desglosePago,
@@ -388,6 +393,7 @@ export default function App() {
     persist({ ...negocioData, productos: nuevosProductos, ventas: [venta, ...negocioData.ventas] });
     setCarrito([]);
     setDescuentoPct("");
+    setRecargoPct("");
     setPagoMultiple(false);
     setMontosPago({ efectivo: "", transferencia: "", credito: "", debito: "", mercadopago: "" });
   }
@@ -1145,7 +1151,25 @@ export default function App() {
                     <span className="font-mono text-sm text-red-600">-{money(montoDescuento)}</span>
                   )}
                 </div>
-                {descuentoNum > 0 && (
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm text-black/60 flex items-center gap-2">
+                    Recargo
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      placeholder="0"
+                      value={recargoPct}
+                      onChange={(e) => setRecargoPct(e.target.value)}
+                      className="w-16 px-2 py-1 rounded border border-black/15 text-sm font-mono text-right"
+                    />
+                    <span className="text-black/40">%</span>
+                  </label>
+                  {recargoNum > 0 && (
+                    <span className="font-mono text-sm text-green-700">+{money(montoRecargo)}</span>
+                  )}
+                </div>
+                {(descuentoNum > 0 || recargoNum > 0) && (
                   <div className="flex items-center justify-between text-xs text-black/40 mb-1">
                     <span>Subtotal</span>
                     <span className="font-mono">{money(totalCarrito)}</span>
@@ -1661,6 +1685,7 @@ export default function App() {
                       <p className="text-xs text-black/40">
                         {new Date(v.fecha).toLocaleDateString("es-AR")} {new Date(v.fecha).toLocaleTimeString("es-AR")}
                         {v.descuentoPct > 0 && <span className="text-red-600"> · {v.descuentoPct}% off</span>}
+                        {v.recargoPct > 0 && <span className="text-green-700"> · +{v.recargoPct}% recargo</span>}
                       </p>
                     </div>
                     <span className="font-mono font-semibold">{money(v.total)}</span>
@@ -1865,6 +1890,7 @@ export default function App() {
                           {v.facturada ? "Facturada" : "Factura pendiente"}
                         </span>
                         {v.descuentoPct > 0 && <span className="text-red-600"> · {v.descuentoPct}% off</span>}
+                        {v.recargoPct > 0 && <span className="text-green-700"> · +{v.recargoPct}% recargo</span>}
                       </p>
                     </div>
                     <span className="font-mono font-semibold">{money(v.total)}</span>
