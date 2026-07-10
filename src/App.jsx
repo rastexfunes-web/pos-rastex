@@ -226,6 +226,7 @@ export default function App() {
   const [verCuentaColegio, setVerCuentaColegio] = useState(false);
   const [verComision, setVerComision] = useState(false);
   const [verStockBajo, setVerStockBajo] = useState(false);
+  const [confirmarReinicio, setConfirmarReinicio] = useState(false);
   const [montoApertura, setMontoApertura] = useState("");
   const [errorCaja, setErrorCaja] = useState("");
   const [mostrarCierre, setMostrarCierre] = useState(false);
@@ -284,6 +285,7 @@ export default function App() {
     setVerCuentaColegio(false);
     setVerComision(false);
     setVerStockBajo(false);
+    setConfirmarReinicio(false);
     cargarNegocioData(negocioId).then((val) => {
       if (cancelado) return;
       setData((prev) => ({ ...prev, [negocioId]: val }));
@@ -310,6 +312,11 @@ export default function App() {
         console.log("Guardado OK en Firestore:", storageKey);
       }
     });
+  }
+
+  function reiniciarVentas() {
+    persist({ ...negocioData, ventas: [] });
+    setConfirmarReinicio(false);
   }
 
   function agregarAlCarrito(producto, talle, precioUsado) {
@@ -1863,6 +1870,36 @@ export default function App() {
                     <span className="font-mono font-semibold">{money(v.total)}</span>
                   </div>
                 ))
+              )}
+            </div>
+
+            <div className="mt-8 pt-4 border-t border-black/10 no-print">
+              {!confirmarReinicio ? (
+                <button
+                  onClick={() => setConfirmarReinicio(true)}
+                  className="text-xs text-red-600 font-medium hover:underline"
+                >
+                  Reiniciar ventas (borra todo el historial de este negocio)
+                </button>
+              ) : (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+                  <p className="text-sm font-semibold text-red-800 mb-1">¿Seguro que querés borrar TODAS las ventas de {negocio.nombre}?</p>
+                  <p className="text-xs text-red-700/70 mb-3">Esto borra el historial completo de ventas de este negocio (no afecta el stock ni la caja). No se puede deshacer.</p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={reiniciarVentas}
+                      className="px-4 py-2 rounded-lg bg-red-600 text-white font-bold text-sm hover:brightness-110"
+                    >
+                      Sí, borrar todo
+                    </button>
+                    <button
+                      onClick={() => setConfirmarReinicio(false)}
+                      className="px-4 py-2 rounded-lg border border-black/10 text-sm text-black/60 hover:bg-black/5"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           </div>
