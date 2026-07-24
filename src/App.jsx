@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import {
   Store, Package, BarChart3, Plus, Minus, Trash2, Banknote, CreditCard,
   ArrowLeftRight, ChevronDown, Pencil, X, Check, Wallet, QrCode, LogOut, Building2, Printer,
+  Download, MessageCircle, Receipt,
 } from "lucide-react";
 import { storage, loginConPin, logout } from "./firebase.js";
 
@@ -227,6 +228,7 @@ export default function App() {
   const [verCuentaColegio, setVerCuentaColegio] = useState(false);
   const [verComision, setVerComision] = useState(false);
   const [verStockBajo, setVerStockBajo] = useState(false);
+  const [remitoVenta, setRemitoVenta] = useState(null);
   const [confirmarReinicio, setConfirmarReinicio] = useState(false);
   const [montoApertura, setMontoApertura] = useState("");
   const [errorCaja, setErrorCaja] = useState("");
@@ -287,6 +289,7 @@ export default function App() {
     setVerCuentaColegio(false);
     setVerComision(false);
     setVerStockBajo(false);
+    setRemitoVenta(null);
     setConfirmarReinicio(false);
     cargarNegocioData(negocioId).then((val) => {
       if (cancelado) return;
@@ -644,6 +647,40 @@ export default function App() {
       );
     }
     return PAGOS.find((p) => p.id === v.tipoPago)?.label || v.tipoPago;
+  }
+
+  function textoRemito(v) {
+    const fecha = new Date(v.fecha);
+    const lineas = [];
+    lineas.push("RASTEX GESTIÓN — " + negocio.nombre);
+    lineas.push("Fecha: " + fecha.toLocaleDateString("es-AR") + " " + fecha.toLocaleTimeString("es-AR"));
+    lineas.push("");
+    lineas.push("Productos:");
+    v.items.forEach((i) => {
+      lineas.push("- " + i.cantidad + "x " + i.nombre + " (" + money(i.precio) + " c/u)");
+    });
+    lineas.push("");
+    if (v.descuentoPct > 0) lineas.push("Descuento: " + v.descuentoPct + "%");
+    if (v.recargoPct > 0) lineas.push("Recargo: " + v.recargoPct + "%");
+    lineas.push("TOTAL: " + money(v.total));
+    lineas.push("Medio de pago: " + labelPago(v));
+    lineas.push("Estado: " + (v.facturada ? "Facturada" : "Factura pendiente"));
+    return lineas.join("\n");
+  }
+
+  function descargarRemito(v) {
+    const blob = new Blob([textoRemito(v)], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "remito-" + v.fecha.slice(0, 10) + "-" + v.id + ".txt";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function compartirRemitoWhatsapp(v) {
+    const texto = encodeURIComponent(textoRemito(v));
+    window.open("https://wa.me/?text=" + texto, "_blank");
   }
 
   function calcularResumenCategoria(ventas, productos) {
@@ -1651,6 +1688,58 @@ export default function App() {
 
             <p className="text-xs text-black/40 mt-3">El stock se descuenta solo cada vez que confirmás una venta en "Vender".</p>
           </div>
+        ) : remitoVenta ? (
+          <div>
+            <div className="flex items-center justify-between mb-4 no-print flex-wrap gap-2">
+              <h1 className="text-xl font-bold">Remito</h1>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => descargarRemito(remitoVenta)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-black/15 text-xs font-medium text-black/60 hover:bg-black/5"
+                >
+                  <Download size={14} /> Descargar
+                </button>
+                <button
+                  onClick={() => compartirRemitoWhatsapp(remitoVenta)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-green-200 bg-green-50 text-xs font-medium text-green-700 hover:bg-green-100"
+                >
+                  <MessageCircle size={14} /> WhatsApp
+                </button>
+                <button
+                  onClick={() => window.print()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-black/15 text-xs font-medium text-black/60 hover:bg-black/5"
+                >
+                  <Printer size={14} /> Imprimir
+                </button>
+                <button onClick={() => setRemitoVenta(null)} className="text-sm text-blue-600 font-medium hover:underline">
+                  ← Volver
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-black/5 p-6 max-w-sm mx-auto font-mono text-sm">
+              <p className="text-center font-bold text-base mb-0.5">RASTEX GESTIÓN</p>
+              <p className="text-center text-xs text-black/50 mb-4">{negocio.nombre}</p>
+              <p className="mb-0.5">
+                Fecha: {new Date(remitoVenta.fecha).toLocaleDateString("es-AR")} {new Date(remitoVenta.fecha).toLocaleTimeString("es-AR")}
+              </p>
+              <div className="border-t border-dashed border-black/20 my-2" />
+              <p className="font-semibold mb-1">Productos:</p>
+              {remitoVenta.items.map((i, idx) => (
+                <p key={idx} className="mb-0.5">
+                  {i.cantidad}x {i.nombre} ({money(i.precio)} c/u)
+                </p>
+              ))}
+              <div className="border-t border-dashed border-black/20 my-2" />
+              {remitoVenta.descuentoPct > 0 && <p className="mb-0.5 text-red-600">Descuento: {remitoVenta.descuentoPct}%</p>}
+              {remitoVenta.recargoPct > 0 && <p className="mb-0.5 text-green-700">Recargo: {remitoVenta.recargoPct}%</p>}
+              <p className="font-bold text-base mb-1">TOTAL: {money(remitoVenta.total)}</p>
+              <p className="mb-0.5">Medio de pago: {labelPago(remitoVenta)}</p>
+              <p className={remitoVenta.facturada ? "text-green-700" : "text-black/50"}>
+                Estado: {remitoVenta.facturada ? "Facturada" : "Factura pendiente"}
+              </p>
+            </div>
+          </div>
         ) : verCuentaColegio ? (
           <div>
             <div className="flex items-center justify-between mb-4">
@@ -1688,7 +1777,16 @@ export default function App() {
                         {v.recargoPct > 0 && <span className="text-green-700"> · +{v.recargoPct}% recargo</span>}
                       </p>
                     </div>
-                    <span className="font-mono font-semibold">{money(v.total)}</span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => setRemitoVenta(v)}
+                        className="w-7 h-7 rounded hover:bg-black/5 flex items-center justify-center text-black/40"
+                        title="Ver remito"
+                      >
+                        <Receipt size={14} />
+                      </button>
+                      <span className="font-mono font-semibold">{money(v.total)}</span>
+                    </div>
                   </div>
                 ))
               )}
@@ -1893,7 +1991,16 @@ export default function App() {
                         {v.recargoPct > 0 && <span className="text-green-700"> · +{v.recargoPct}% recargo</span>}
                       </p>
                     </div>
-                    <span className="font-mono font-semibold">{money(v.total)}</span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => setRemitoVenta(v)}
+                        className="w-7 h-7 rounded hover:bg-black/5 flex items-center justify-center text-black/40"
+                        title="Ver remito"
+                      >
+                        <Receipt size={14} />
+                      </button>
+                      <span className="font-mono font-semibold">{money(v.total)}</span>
+                    </div>
                   </div>
                 ))
               )}
