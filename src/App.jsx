@@ -41,6 +41,7 @@ const TABS = [
   { id: "venta", label: "Vender", icon: Store },
   { id: "stock", label: "Stock", icon: Package },
   { id: "informes", label: "Informes", icon: BarChart3 },
+  { id: "cuentacolegio", label: "Cuenta Colegio", icon: Building2 },
 ];
 
 const USUARIOS_POR_UID = {
@@ -225,7 +226,6 @@ export default function App() {
   const [fechaFiltro, setFechaFiltro] = useState(todayKey());
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
-  const [verCuentaColegio, setVerCuentaColegio] = useState(false);
   const [verComision, setVerComision] = useState(false);
   const [verStockBajo, setVerStockBajo] = useState(false);
   const [remitoVenta, setRemitoVenta] = useState(null);
@@ -243,7 +243,10 @@ export default function App() {
   const negociosVisibles =
     usuario && usuario.rol === "empleado" ? NEGOCIOS.filter((n) => usuario.negociosPermitidos.includes(n.id)) : NEGOCIOS;
 
-  const tabsVisibles = usuario && usuario.rol === "empleado" ? TABS.filter((t) => t.id === "venta") : TABS;
+  const tabsVisibles =
+    usuario && usuario.rol === "empleado"
+      ? TABS.filter((t) => t.id === "venta")
+      : TABS.filter((t) => t.id !== "cuentacolegio" || negocioId === "colegio");
 
   function iniciarSesion(u) {
     setUsuario(u);
@@ -286,11 +289,13 @@ export default function App() {
     setFechaFiltro(todayKey());
     setFechaDesde("");
     setFechaHasta("");
-    setVerCuentaColegio(false);
     setVerComision(false);
     setVerStockBajo(false);
     setRemitoVenta(null);
     setConfirmarReinicio(false);
+    if (tab === "cuentacolegio" && negocioId !== "colegio") {
+      setTab("venta");
+    }
     cargarNegocioData(negocioId).then((val) => {
       if (cancelado) return;
       setData((prev) => ({ ...prev, [negocioId]: val }));
@@ -1740,15 +1745,15 @@ export default function App() {
               </p>
             </div>
           </div>
-        ) : verCuentaColegio ? (
+        ) : tab === "cuentacolegio" ? (
           <div>
             <div className="flex items-center justify-between mb-4">
               <h1 className="text-xl font-bold">Cuenta Colegio — {negocio.nombre}</h1>
               <button
-                onClick={() => setVerCuentaColegio(false)}
-                className="text-sm text-blue-600 font-medium hover:underline"
+                onClick={() => window.print()}
+                className="no-print flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-black/15 text-xs font-medium text-black/60 hover:bg-black/5"
               >
-                ← Volver a Informes
+                <Printer size={14} /> Imprimir
               </button>
             </div>
 
@@ -1777,7 +1782,7 @@ export default function App() {
                         {v.recargoPct > 0 && <span className="text-green-700"> · +{v.recargoPct}% recargo</span>}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-2 shrink-0 no-print">
                       <button
                         onClick={() => setRemitoVenta(v)}
                         className="w-7 h-7 rounded hover:bg-black/5 flex items-center justify-center text-black/40"
@@ -1903,7 +1908,7 @@ export default function App() {
 
             {ventasCuentaColegioTodas.length > 0 && (
               <button
-                onClick={() => setVerCuentaColegio(true)}
+                onClick={() => setTab("cuentacolegio")}
                 className="w-full bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 flex items-center justify-between hover:bg-amber-100 transition"
               >
                 <div className="flex items-center gap-2">
