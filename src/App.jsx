@@ -226,6 +226,10 @@ export default function App() {
   const [fechaFiltro, setFechaFiltro] = useState(todayKey());
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
+  const [vistaColegio, setVistaColegio] = useState("historico");
+  const [fechaFiltroColegio, setFechaFiltroColegio] = useState(todayKey());
+  const [fechaDesdeColegio, setFechaDesdeColegio] = useState("");
+  const [fechaHastaColegio, setFechaHastaColegio] = useState("");
   const [verComision, setVerComision] = useState(false);
   const [verStockBajo, setVerStockBajo] = useState(false);
   const [remitoVenta, setRemitoVenta] = useState(null);
@@ -289,6 +293,10 @@ export default function App() {
     setFechaFiltro(todayKey());
     setFechaDesde("");
     setFechaHasta("");
+    setVistaColegio("historico");
+    setFechaFiltroColegio(todayKey());
+    setFechaDesdeColegio("");
+    setFechaHastaColegio("");
     setVerComision(false);
     setVerStockBajo(false);
     setRemitoVenta(null);
@@ -711,28 +719,28 @@ export default function App() {
     return calcularResumenCategoria(ventasHoy, negocioData.productos);
   }, [ventasHoy, negocioData.productos, negocioId]);
 
-  function filtrarPorPeriodo(ventas) {
-    if (vistaTotales === "hoy") {
+  function filtrarPorPeriodo(ventas, modo, diaFiltro, desde, hasta) {
+    if (modo === "hoy") {
       return ventas.filter((v) => v.fecha.slice(0, 10) === todayKey());
     }
-    if (vistaTotales === "dia") {
-      return ventas.filter((v) => v.fecha.slice(0, 10) === fechaFiltro);
+    if (modo === "dia") {
+      return ventas.filter((v) => v.fecha.slice(0, 10) === diaFiltro);
     }
-    if (vistaTotales === "30dias") {
+    if (modo === "30dias") {
       const limite = Date.now() - 30 * 24 * 60 * 60 * 1000;
       return ventas.filter((v) => new Date(v.fecha).getTime() >= limite);
     }
     return ventas.filter((v) => {
       const dia = v.fecha.slice(0, 10);
-      if (fechaDesde && dia < fechaDesde) return false;
-      if (fechaHasta && dia > fechaHasta) return false;
+      if (desde && dia < desde) return false;
+      if (hasta && dia > hasta) return false;
       return true;
     });
   }
 
   const ventasVista = useMemo(() => {
     const ventasSinColegio = negocioData.ventas.filter((v) => v.tipoPago !== "colegio");
-    return filtrarPorPeriodo(ventasSinColegio);
+    return filtrarPorPeriodo(ventasSinColegio, vistaTotales, fechaFiltro, fechaDesde, fechaHasta);
   }, [negocioData.ventas, vistaTotales, fechaFiltro, fechaDesde, fechaHasta]);
 
   const resumenVista = useMemo(() => calcularResumenPago(ventasVista), [ventasVista]);
@@ -743,7 +751,7 @@ export default function App() {
     negocioData.productos.forEach((p) => {
       mapaCategoria[p.id] = p.categoria;
     });
-    const ventasPeriodo = filtrarPorPeriodo(negocioData.ventas); // incluye Cuenta Colegio
+    const ventasPeriodo = filtrarPorPeriodo(negocioData.ventas, vistaTotales, fechaFiltro, fechaDesde, fechaHasta); // incluye Cuenta Colegio
     let total = 0;
     ventasPeriodo.forEach((v) => {
       v.items.forEach((i) => {
@@ -767,6 +775,15 @@ export default function App() {
     [ventasCuentaColegioTodas]
   );
 
+  const ventasCuentaColegioFiltrada = useMemo(
+    () => filtrarPorPeriodo(ventasCuentaColegioTodas, vistaColegio, fechaFiltroColegio, fechaDesdeColegio, fechaHastaColegio),
+    [ventasCuentaColegioTodas, vistaColegio, fechaFiltroColegio, fechaDesdeColegio, fechaHastaColegio]
+  );
+  const totalCuentaColegioFiltrado = useMemo(
+    () => ventasCuentaColegioFiltrada.reduce((acc, v) => acc + v.total, 0),
+    [ventasCuentaColegioFiltrada]
+  );
+
 
 
   const resumenCategoriaVista = useMemo(() => {
@@ -783,6 +800,16 @@ export default function App() {
     if (fechaDesde) return "Informe desde el " + formatFecha(fechaDesde);
     if (fechaHasta) return "Informe hasta el " + formatFecha(fechaHasta);
     return "Informe histórico";
+  }
+
+  function tituloPeriodoColegio() {
+    if (vistaColegio === "hoy") return "Hoy";
+    if (vistaColegio === "dia") return formatFecha(fechaFiltroColegio);
+    if (vistaColegio === "30dias") return "Últimos 30 días";
+    if (fechaDesdeColegio && fechaHastaColegio) return "Del " + formatFecha(fechaDesdeColegio) + " al " + formatFecha(fechaHastaColegio);
+    if (fechaDesdeColegio) return "Desde el " + formatFecha(fechaDesdeColegio);
+    if (fechaHastaColegio) return "Hasta el " + formatFecha(fechaHastaColegio);
+    return "Histórico (todo)";
   }
 
   if (!usuario) {
@@ -1757,22 +1784,84 @@ export default function App() {
               </button>
             </div>
 
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 flex items-center justify-between">
-              <div>
-                <p className="font-semibold text-sm text-amber-900">Total histórico a cobrarle a dirección</p>
-                <p className="text-xs text-amber-700/70">
-                  {ventasCuentaColegioTodas.length} venta{ventasCuentaColegioTodas.length === 1 ? "" : "s"} en total
-                </p>
+            <div className="no-print flex flex-wrap items-center gap-2 mb-4">
+              <div className="flex flex-wrap rounded-lg bg-black/5 p-0.5 text-xs">
+                {FILTROS_PERIODO.map((f) => (
+                  <button
+                    key={f.id}
+                    onClick={() => setVistaColegio(f.id)}
+                    className={
+                      "px-3 py-1.5 rounded-md font-medium transition whitespace-nowrap " +
+                      (vistaColegio === f.id ? "bg-white shadow-sm text-blue-600" : "text-black/50")
+                    }
+                  >
+                    {f.label}
+                  </button>
+                ))}
               </div>
-              <span className="font-mono font-bold text-2xl text-amber-800">{money(totalCuentaColegioTodas)}</span>
+              {vistaColegio === "dia" && (
+                <input
+                  type="date"
+                  value={fechaFiltroColegio}
+                  onChange={(e) => setFechaFiltroColegio(e.target.value)}
+                  max={todayKey()}
+                  className="px-3 py-1.5 rounded-lg border border-black/15 text-sm"
+                />
+              )}
+              {vistaColegio === "historico" && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <label className="flex items-center gap-1.5 text-xs text-black/50">
+                    Desde
+                    <input
+                      type="date"
+                      value={fechaDesdeColegio}
+                      onChange={(e) => setFechaDesdeColegio(e.target.value)}
+                      max={fechaHastaColegio || todayKey()}
+                      className="px-3 py-1.5 rounded-lg border border-black/15 text-sm"
+                    />
+                  </label>
+                  <label className="flex items-center gap-1.5 text-xs text-black/50">
+                    Hasta
+                    <input
+                      type="date"
+                      value={fechaHastaColegio}
+                      onChange={(e) => setFechaHastaColegio(e.target.value)}
+                      min={fechaDesdeColegio}
+                      max={todayKey()}
+                      className="px-3 py-1.5 rounded-lg border border-black/15 text-sm"
+                    />
+                  </label>
+                  {(fechaDesdeColegio || fechaHastaColegio) && (
+                    <button
+                      onClick={() => {
+                        setFechaDesdeColegio("");
+                        setFechaHastaColegio("");
+                      }}
+                      className="text-xs text-blue-600 hover:underline"
+                    >
+                      Ver todo
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
-            <h2 className="font-bold mb-2 text-sm">Detalle de todas las ventas a Cuenta Colegio</h2>
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 flex items-center justify-between">
+              <div>
+                <p className="font-semibold text-sm text-amber-900">Total a cobrarle a dirección — {tituloPeriodoColegio()}</p>
+                <p className="text-xs text-amber-700/70">
+                  {ventasCuentaColegioFiltrada.length} venta{ventasCuentaColegioFiltrada.length === 1 ? "" : "s"}
+                </p>
+              </div>
+              <span className="font-mono font-bold text-2xl text-amber-800">{money(totalCuentaColegioFiltrado)}</span>
+            </div>
+
+            <h2 className="font-bold mb-2 text-sm">Detalle de ventas a Cuenta Colegio</h2>
             <div className="bg-white rounded-xl shadow-sm border border-black/5 divide-y divide-black/5">
-              {ventasCuentaColegioTodas.length === 0 ? (
-                <p className="p-4 text-sm text-black/40">Todavía no hay ventas a Cuenta Colegio.</p>
+              {ventasCuentaColegioFiltrada.length === 0 ? (
+                <p className="p-4 text-sm text-black/40">No hay ventas a Cuenta Colegio en este período.</p>
               ) : (
-                ventasCuentaColegioTodas.map((v) => (
+                ventasCuentaColegioFiltrada.map((v) => (
                   <div key={v.id} className="p-3 flex items-center justify-between text-sm">
                     <div>
                       <p className="font-medium">{v.items.map((i) => i.cantidad + "x " + i.nombre).join(", ")}</p>
