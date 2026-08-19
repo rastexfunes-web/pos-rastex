@@ -241,6 +241,24 @@ export default function App() {
   const [montoRetiro, setMontoRetiro] = useState("");
   const [motivoRetiro, setMotivoRetiro] = useState("");
   const [errorRetiro, setErrorRetiro] = useState("");
+  const [cambioAbierto, setCambioAbierto] = useState(false);
+  const [devueltoSel, setDevueltoSel] = useState({ productoId: "", talle: "" });
+  const [devueltoCantidad, setDevueltoCantidad] = useState("1");
+  const [itemsDevueltos, setItemsDevueltos] = useState([]);
+  const [nuevoSelCambio, setNuevoSelCambio] = useState({ productoId: "", talle: "" });
+  const [nuevoCantidadCambio, setNuevoCantidadCambio] = useState("1");
+  const [itemsNuevosCambio, setItemsNuevosCambio] = useState([]);
+  const [pagoCambioSel, setPagoCambioSel] = useState("efectivo");
+  const [errorCambio, setErrorCambio] = useState("");
+  const [editandoVentaId, setEditandoVentaId] = useState(null);
+  const [itemsEdicionVenta, setItemsEdicionVenta] = useState([]);
+  const [tipoPagoEdicion, setTipoPagoEdicion] = useState("efectivo");
+  const [descuentoEdicion, setDescuentoEdicion] = useState("0");
+  const [recargoEdicion, setRecargoEdicion] = useState("0");
+  const [selEdicionProducto, setSelEdicionProducto] = useState({ productoId: "", talle: "" });
+  const [cantidadEdicionProducto, setCantidadEdicionProducto] = useState("1");
+  const [errorEdicionVenta, setErrorEdicionVenta] = useState("");
+  const [actualizarStockEdicion, setActualizarStockEdicion] = useState(true);
 
   const negocio = NEGOCIOS.find((n) => n.id === negocioId) || NEGOCIOS[0];
 
@@ -626,6 +644,247 @@ export default function App() {
     setErrorTalle("");
   }
 
+  function abrirCambio() {
+    setCambioAbierto(true);
+    setItemsDevueltos([]);
+    setItemsNuevosCambio([]);
+    setDevueltoSel({ productoId: "", talle: "" });
+    setNuevoSelCambio({ productoId: "", talle: "" });
+    setDevueltoCantidad("1");
+    setNuevoCantidadCambio("1");
+    setPagoCambioSel("efectivo");
+    setErrorCambio("");
+  }
+
+  function cerrarCambio() {
+    setCambioAbierto(false);
+    setErrorCambio("");
+  }
+
+  function agregarItemCambio(tipo) {
+    const sel = tipo === "devuelto" ? devueltoSel : nuevoSelCambio;
+    const cantidadStr = tipo === "devuelto" ? devueltoCantidad : nuevoCantidadCambio;
+    const cantidad = Number(cantidadStr);
+    if (!sel.productoId || isNaN(cantidad) || cantidad <= 0) {
+      setErrorCambio("Elegí un producto y una cantidad válida.");
+      return;
+    }
+    const producto = negocioData.productos.find((p) => p.id === sel.productoId);
+    if (!producto) return;
+    let precio, nombreItem, talle;
+    if (tieneTalles(producto)) {
+      const t = producto.talles.find((x) => x.talle === sel.talle);
+      if (!t) {
+        setErrorCambio("Elegí un talle.");
+        return;
+      }
+      precio = t.precio;
+      talle = t.talle;
+      nombreItem = producto.nombre + " (talle " + t.talle + ")";
+    } else {
+      precio = producto.precio;
+      talle = null;
+      nombreItem = producto.nombre;
+    }
+    const item = { id: producto.id, talle, nombre: nombreItem, precio, cantidad };
+    if (tipo === "devuelto") {
+      setItemsDevueltos((prev) => [...prev, item]);
+      setDevueltoSel({ productoId: "", talle: "" });
+      setDevueltoCantidad("1");
+    } else {
+      setItemsNuevosCambio((prev) => [...prev, item]);
+      setNuevoSelCambio({ productoId: "", talle: "" });
+      setNuevoCantidadCambio("1");
+    }
+    setErrorCambio("");
+  }
+
+  function quitarItemCambio(tipo, idx) {
+    if (tipo === "devuelto") setItemsDevueltos((prev) => prev.filter((_, i) => i !== idx));
+    else setItemsNuevosCambio((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  const totalDevueltoCambio = itemsDevueltos.reduce((acc, i) => acc + i.precio * i.cantidad, 0);
+  const totalNuevoCambio = itemsNuevosCambio.reduce((acc, i) => acc + i.precio * i.cantidad, 0);
+  const diferenciaCambio = totalNuevoCambio - totalDevueltoCambio;
+
+  function confirmarCambio() {
+    if (itemsDevueltos.length === 0 && itemsNuevosCambio.length === 0) {
+      setErrorCambio("Agregá al menos un producto devuelto o nuevo.");
+      return;
+    }
+    const nuevosProductos = negocioData.productos.map((p) => {
+      if (tieneTalles(p)) {
+        const nuevosTalles = p.talles.map((t) => {
+          const devuelto = itemsDevueltos
+            .filter((i) => i.id === p.id && i.talle === t.talle)
+            .reduce((acc, i) => acc + i.cantidad, 0);
+          const nuevo = itemsNuevosCambio
+            .filter((i) => i.id === p.id && i.talle === t.talle)
+            .reduce((acc, i) => acc + i.cantidad, 0);
+          if (devuelto === 0 && nuevo === 0) return t;
+          return { ...t, stock: Math.max(0, t.stock + devuelto - nuevo) };
+        });
+        return { ...p, talles: nuevosTalles };
+      }
+      const devuelto = itemsDevueltos.filter((i) => i.id === p.id).reduce((acc, i) => acc + i.cantidad, 0);
+      const nuevo = itemsNuevosCambio.filter((i) => i.id === p.id).reduce((acc, i) => acc + i.cantidad, 0);
+      if (devuelto === 0 && nuevo === 0) return p;
+      return { ...p, stock: Math.max(0, p.stock + devuelto - nuevo) };
+    });
+
+    const venta = {
+      id: "v-" + Date.now(),
+      fecha: new Date().toISOString(),
+      items: itemsNuevosCambio,
+      itemsDevueltos,
+      subtotal: totalNuevoCambio,
+      descuentoPct: 0,
+      recargoPct: 0,
+      total: diferenciaCambio,
+      tipoPago: diferenciaCambio === 0 ? "cambio" : pagoCambioSel,
+      desglosePago: null,
+      facturada: false,
+      esCambio: true,
+    };
+
+    persist({ ...negocioData, productos: nuevosProductos, ventas: [venta, ...negocioData.ventas] });
+    setCambioAbierto(false);
+  }
+
+  function claveItem(id, talle) {
+    return id + "|" + (talle || "");
+  }
+
+  function iniciarEdicionVenta(v) {
+    setEditandoVentaId(v.id);
+    setItemsEdicionVenta(v.items.map((i) => ({ ...i })));
+    setTipoPagoEdicion(v.tipoPago === "mixto" || v.tipoPago === "cambio" ? "efectivo" : v.tipoPago);
+    setDescuentoEdicion(String(v.descuentoPct || 0));
+    setRecargoEdicion(String(v.recargoPct || 0));
+    setSelEdicionProducto({ productoId: "", talle: "" });
+    setCantidadEdicionProducto("1");
+    setErrorEdicionVenta("");
+    setActualizarStockEdicion(true);
+  }
+
+  function cancelarEdicionVenta() {
+    setEditandoVentaId(null);
+    setErrorEdicionVenta("");
+  }
+
+  function agregarItemEdicionVenta() {
+    const cantidad = Number(cantidadEdicionProducto);
+    if (!selEdicionProducto.productoId || isNaN(cantidad) || cantidad <= 0) {
+      setErrorEdicionVenta("Elegí un producto y una cantidad válida.");
+      return;
+    }
+    const producto = negocioData.productos.find((p) => p.id === selEdicionProducto.productoId);
+    if (!producto) return;
+    let precio, nombreItem, talle;
+    if (tieneTalles(producto)) {
+      const t = producto.talles.find((x) => x.talle === selEdicionProducto.talle);
+      if (!t) {
+        setErrorEdicionVenta("Elegí un talle.");
+        return;
+      }
+      precio = t.precio;
+      talle = t.talle;
+      nombreItem = producto.nombre + " (talle " + t.talle + ")";
+    } else {
+      precio = producto.precio;
+      talle = null;
+      nombreItem = producto.nombre;
+    }
+    const cartId = claveItem(producto.id, talle);
+    setItemsEdicionVenta((prev) => {
+      const existe = prev.find((i) => claveItem(i.id, i.talle) === cartId);
+      if (existe) {
+        return prev.map((i) => (claveItem(i.id, i.talle) === cartId ? { ...i, cantidad: i.cantidad + cantidad } : i));
+      }
+      return [...prev, { id: producto.id, talle, nombre: nombreItem, precio, cantidad }];
+    });
+    setSelEdicionProducto({ productoId: "", talle: "" });
+    setCantidadEdicionProducto("1");
+    setErrorEdicionVenta("");
+  }
+
+  function cambiarCantidadEdicionVenta(id, talle, delta) {
+    setItemsEdicionVenta((prev) =>
+      prev
+        .map((i) => (claveItem(i.id, i.talle) === claveItem(id, talle) ? { ...i, cantidad: i.cantidad + delta } : i))
+        .filter((i) => i.cantidad > 0)
+    );
+  }
+
+  function quitarItemEdicionVenta(id, talle) {
+    setItemsEdicionVenta((prev) => prev.filter((i) => claveItem(i.id, i.talle) !== claveItem(id, talle)));
+  }
+
+  const subtotalEdicionVenta = itemsEdicionVenta.reduce((acc, i) => acc + i.precio * i.cantidad, 0);
+  const descuentoEdicionNum = Math.min(100, Math.max(0, Number(descuentoEdicion) || 0));
+  const recargoEdicionNum = Math.min(100, Math.max(0, Number(recargoEdicion) || 0));
+  const totalEdicionVenta =
+    subtotalEdicionVenta - subtotalEdicionVenta * (descuentoEdicionNum / 100) + subtotalEdicionVenta * (recargoEdicionNum / 100);
+
+  function guardarEdicionVenta() {
+    if (itemsEdicionVenta.length === 0) {
+      setErrorEdicionVenta("La venta necesita al menos un producto.");
+      return;
+    }
+    const ventaOriginal = negocioData.ventas.find((v) => v.id === editandoVentaId);
+    if (!ventaOriginal) return;
+
+    const claves = new Set();
+    ventaOriginal.items.forEach((i) => claves.add(claveItem(i.id, i.talle)));
+    itemsEdicionVenta.forEach((i) => claves.add(claveItem(i.id, i.talle)));
+
+    const deltaPorClave = {};
+    claves.forEach((clave) => {
+      const [id, talle] = clave.split("|");
+      const cantidadOriginal = ventaOriginal.items
+        .filter((i) => claveItem(i.id, i.talle) === clave)
+        .reduce((acc, i) => acc + i.cantidad, 0);
+      const cantidadNueva = itemsEdicionVenta
+        .filter((i) => claveItem(i.id, i.talle) === clave)
+        .reduce((acc, i) => acc + i.cantidad, 0);
+      deltaPorClave[clave] = cantidadOriginal - cantidadNueva; // positivo = repone stock, negativo = descuenta más
+    });
+
+    const nuevosProductos = actualizarStockEdicion
+      ? negocioData.productos.map((p) => {
+          if (tieneTalles(p)) {
+            const nuevosTalles = p.talles.map((t) => {
+              const delta = deltaPorClave[claveItem(p.id, t.talle)];
+              if (!delta) return t;
+              return { ...t, stock: Math.max(0, t.stock + delta) };
+            });
+            return { ...p, talles: nuevosTalles };
+          }
+          const delta = deltaPorClave[claveItem(p.id, "")];
+          if (!delta) return p;
+          return { ...p, stock: Math.max(0, p.stock + delta) };
+        })
+      : negocioData.productos;
+
+    const ventaEditada = {
+      ...ventaOriginal,
+      items: itemsEdicionVenta,
+      subtotal: subtotalEdicionVenta,
+      descuentoPct: descuentoEdicionNum,
+      recargoPct: recargoEdicionNum,
+      total: totalEdicionVenta,
+      tipoPago: tipoPagoEdicion,
+      desglosePago: null,
+      editada: true,
+    };
+
+    const nuevasVentas = negocioData.ventas.map((v) => (v.id === editandoVentaId ? ventaEditada : v));
+    persist({ ...negocioData, productos: nuevosProductos, ventas: nuevasVentas });
+    setEditandoVentaId(null);
+    setErrorEdicionVenta("");
+  }
+
   const ventasHoy = useMemo(
     () => negocioData.ventas.filter((v) => v.fecha.slice(0, 10) === todayKey()),
     [negocioData.ventas]
@@ -649,6 +908,11 @@ export default function App() {
   const resumenHoy = useMemo(() => calcularResumenPago(ventasHoy), [ventasHoy]);
 
   function labelPago(v) {
+    if (v.esCambio) {
+      const base = "Cambio/Devolución";
+      if (v.tipoPago === "cambio") return base;
+      return base + " · " + (PAGOS.find((p) => p.id === v.tipoPago)?.label || v.tipoPago);
+    }
     if (v.tipoPago === "colegio") return "Cuenta Colegio";
     if (v.tipoPago === "mixto" && v.desglosePago) {
       return (
@@ -1327,6 +1591,12 @@ export default function App() {
                 className="w-full py-2.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 font-semibold text-sm disabled:opacity-30 hover:bg-amber-100 transition mt-2"
               >
                 Cuenta Colegio
+              </button>
+              <button
+                onClick={abrirCambio}
+                className="w-full py-2.5 rounded-lg border border-purple-300 bg-purple-50 text-purple-800 font-semibold text-sm hover:bg-purple-100 transition mt-2"
+              >
+                Cambio / Devolución
               </button>
               <p className="text-[11px] text-black/35 mt-2 text-center">
                 "Facturar" va a conectar con ARCA (vía TusFacturasAPP/Facturante) cuando esté armada esa parte. Por ahora solo queda marcada la venta como facturada. "Cuenta Colegio" cierra la venta directo, sin pasar por caja — la liquida la dirección.
@@ -2086,6 +2356,15 @@ export default function App() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
+                      {usuario.rol === "dueno" && (
+                        <button
+                          onClick={() => iniciarEdicionVenta(v)}
+                          className="w-7 h-7 rounded hover:bg-black/5 flex items-center justify-center text-black/40"
+                          title="Editar venta"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                      )}
                       <button
                         onClick={() => setRemitoVenta(v)}
                         className="w-7 h-7 rounded hover:bg-black/5 flex items-center justify-center text-black/40"
@@ -2132,6 +2411,377 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {editandoVentaId && (
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 no-print"
+          onClick={cancelarEdicionVenta}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl w-full max-w-lg p-5 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-bold text-lg">Editar venta</h2>
+              <button onClick={cancelarEdicionVenta} className="w-8 h-8 rounded hover:bg-black/5 flex items-center justify-center">
+                <X size={18} />
+              </button>
+            </div>
+
+            <p className="text-sm font-semibold mb-2">Productos</p>
+            <div className="space-y-1.5 mb-3">
+              {itemsEdicionVenta.map((i) => (
+                <div key={claveItem(i.id, i.talle)} className="flex items-center justify-between text-sm gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="truncate font-medium">{i.nombre}</p>
+                    <p className="font-mono text-xs text-black/40">{money(i.precio)} c/u</p>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => cambiarCantidadEdicionVenta(i.id, i.talle, -1)}
+                      className="w-6 h-6 rounded bg-black/5 hover:bg-black/10 flex items-center justify-center"
+                    >
+                      <Minus size={12} />
+                    </button>
+                    <span className="w-5 text-center font-mono">{i.cantidad}</span>
+                    <button
+                      onClick={() => cambiarCantidadEdicionVenta(i.id, i.talle, 1)}
+                      className="w-6 h-6 rounded bg-black/5 hover:bg-black/10 flex items-center justify-center"
+                    >
+                      <Plus size={12} />
+                    </button>
+                    <button
+                      onClick={() => quitarItemEdicionVenta(i.id, i.talle)}
+                      className="w-6 h-6 rounded hover:bg-red-50 text-red-600 flex items-center justify-center ml-1"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {itemsEdicionVenta.length === 0 && <p className="text-xs text-black/40">Sin productos.</p>}
+            </div>
+
+            <div className="flex flex-wrap gap-2 mb-4">
+              <select
+                value={selEdicionProducto.productoId}
+                onChange={(e) => setSelEdicionProducto({ productoId: e.target.value, talle: "" })}
+                className="flex-1 min-w-[140px] px-2 py-1.5 rounded border border-black/15 text-sm bg-white"
+              >
+                <option value="">Agregar producto...</option>
+                {negocioData.productos.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nombre}
+                  </option>
+                ))}
+              </select>
+              {selEdicionProducto.productoId &&
+                tieneTalles(negocioData.productos.find((p) => p.id === selEdicionProducto.productoId)) && (
+                  <select
+                    value={selEdicionProducto.talle}
+                    onChange={(e) => setSelEdicionProducto((s) => ({ ...s, talle: e.target.value }))}
+                    className="px-2 py-1.5 rounded border border-black/15 text-sm bg-white"
+                  >
+                    <option value="">Talle...</option>
+                    {negocioData.productos
+                      .find((p) => p.id === selEdicionProducto.productoId)
+                      .talles.map((t) => (
+                        <option key={t.talle} value={t.talle}>
+                          {t.talle}
+                        </option>
+                      ))}
+                  </select>
+                )}
+              <input
+                type="number"
+                min="1"
+                value={cantidadEdicionProducto}
+                onChange={(e) => setCantidadEdicionProducto(e.target.value)}
+                className="w-16 px-2 py-1.5 rounded border border-black/15 text-sm font-mono"
+              />
+              <button
+                onClick={agregarItemEdicionVenta}
+                className="px-3 py-1.5 rounded bg-slate-800 text-white text-xs font-bold"
+              >
+                Agregar
+              </button>
+            </div>
+
+            <div className="flex items-center gap-3 mb-3">
+              <label className="text-sm text-black/60 flex items-center gap-2">
+                Descuento
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={descuentoEdicion}
+                  onChange={(e) => setDescuentoEdicion(e.target.value)}
+                  className="w-16 px-2 py-1 rounded border border-black/15 text-sm font-mono text-right"
+                />
+                <span className="text-black/40">%</span>
+              </label>
+              <label className="text-sm text-black/60 flex items-center gap-2">
+                Recargo
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={recargoEdicion}
+                  onChange={(e) => setRecargoEdicion(e.target.value)}
+                  className="w-16 px-2 py-1 rounded border border-black/15 text-sm font-mono text-right"
+                />
+                <span className="text-black/40">%</span>
+              </label>
+            </div>
+
+            <p className="text-sm font-semibold mb-2">Medio de pago</p>
+            <div className="grid grid-cols-3 gap-1.5 mb-3">
+              {PAGOS.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => setTipoPagoEdicion(p.id)}
+                  className={
+                    "flex flex-col items-center gap-1 py-2 rounded-lg text-xs font-medium border transition " +
+                    (tipoPagoEdicion === p.id ? "bg-blue-600 text-white border-blue-600" : "border-black/10 text-black/60 hover:border-black/30")
+                  }
+                >
+                  <p.icon size={15} />
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
+            <label className="flex items-center gap-2 text-sm mb-3">
+              <input
+                type="checkbox"
+                checked={actualizarStockEdicion}
+                onChange={(e) => setActualizarStockEdicion(e.target.checked)}
+                className="w-4 h-4"
+              />
+              Actualizar stock según estos cambios
+            </label>
+
+            <div className="border-t border-black/10 pt-3 mb-3 flex items-center justify-between">
+              <span className="font-semibold text-sm">Total</span>
+              <span className="font-mono font-bold text-lg">{money(totalEdicionVenta)}</span>
+            </div>
+
+            {errorEdicionVenta && <p className="text-xs text-red-600 mb-2">{errorEdicionVenta}</p>}
+
+            <div className="flex gap-2">
+              <button
+                onClick={guardarEdicionVenta}
+                className="flex-1 py-2.5 rounded-lg bg-blue-600 text-white font-bold text-sm hover:brightness-110"
+              >
+                Guardar cambios
+              </button>
+              <button
+                onClick={cancelarEdicionVenta}
+                className="px-4 py-2.5 rounded-lg border border-black/10 text-sm text-black/60 hover:bg-black/5"
+              >
+                Cancelar
+              </button>
+            </div>
+            <p className="text-[11px] text-black/35 mt-2 text-center">
+              El stock se ajusta automáticamente según los productos que agregues o quites (si dejás tildada la casilla de arriba).
+            </p>
+          </div>
+        </div>
+      )}
+
+      {cambioAbierto && (
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 no-print"
+          onClick={cerrarCambio}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl w-full max-w-lg p-5 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-bold text-lg">Cambio / Devolución</h2>
+              <button onClick={cerrarCambio} className="w-8 h-8 rounded hover:bg-black/5 flex items-center justify-center">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <p className="text-sm font-semibold mb-2">Producto devuelto</p>
+              <div className="flex flex-wrap gap-2 mb-2">
+                <select
+                  value={devueltoSel.productoId}
+                  onChange={(e) => setDevueltoSel({ productoId: e.target.value, talle: "" })}
+                  className="flex-1 min-w-[140px] px-2 py-1.5 rounded border border-black/15 text-sm bg-white"
+                >
+                  <option value="">Elegí producto...</option>
+                  {negocioData.productos.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.nombre}
+                    </option>
+                  ))}
+                </select>
+                {devueltoSel.productoId &&
+                  tieneTalles(negocioData.productos.find((p) => p.id === devueltoSel.productoId)) && (
+                    <select
+                      value={devueltoSel.talle}
+                      onChange={(e) => setDevueltoSel((s) => ({ ...s, talle: e.target.value }))}
+                      className="px-2 py-1.5 rounded border border-black/15 text-sm bg-white"
+                    >
+                      <option value="">Talle...</option>
+                      {negocioData.productos
+                        .find((p) => p.id === devueltoSel.productoId)
+                        .talles.map((t) => (
+                          <option key={t.talle} value={t.talle}>
+                            {t.talle}
+                          </option>
+                        ))}
+                    </select>
+                  )}
+                <input
+                  type="number"
+                  min="1"
+                  value={devueltoCantidad}
+                  onChange={(e) => setDevueltoCantidad(e.target.value)}
+                  className="w-16 px-2 py-1.5 rounded border border-black/15 text-sm font-mono"
+                />
+                <button
+                  onClick={() => agregarItemCambio("devuelto")}
+                  className="px-3 py-1.5 rounded bg-slate-800 text-white text-xs font-bold"
+                >
+                  Agregar
+                </button>
+              </div>
+              {itemsDevueltos.map((it, idx) => (
+                <div key={idx} className="flex items-center justify-between text-sm py-1">
+                  <span>
+                    {it.cantidad}x {it.nombre}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono">{money(it.precio * it.cantidad)}</span>
+                    <button onClick={() => quitarItemCambio("devuelto", idx)} className="text-red-600">
+                      <X size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mb-4">
+              <p className="text-sm font-semibold mb-2">Producto nuevo (opcional)</p>
+              <div className="flex flex-wrap gap-2 mb-2">
+                <select
+                  value={nuevoSelCambio.productoId}
+                  onChange={(e) => setNuevoSelCambio({ productoId: e.target.value, talle: "" })}
+                  className="flex-1 min-w-[140px] px-2 py-1.5 rounded border border-black/15 text-sm bg-white"
+                >
+                  <option value="">Elegí producto...</option>
+                  {negocioData.productos.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.nombre}
+                    </option>
+                  ))}
+                </select>
+                {nuevoSelCambio.productoId &&
+                  tieneTalles(negocioData.productos.find((p) => p.id === nuevoSelCambio.productoId)) && (
+                    <select
+                      value={nuevoSelCambio.talle}
+                      onChange={(e) => setNuevoSelCambio((s) => ({ ...s, talle: e.target.value }))}
+                      className="px-2 py-1.5 rounded border border-black/15 text-sm bg-white"
+                    >
+                      <option value="">Talle...</option>
+                      {negocioData.productos
+                        .find((p) => p.id === nuevoSelCambio.productoId)
+                        .talles.map((t) => (
+                          <option key={t.talle} value={t.talle}>
+                            {t.talle}
+                          </option>
+                        ))}
+                    </select>
+                  )}
+                <input
+                  type="number"
+                  min="1"
+                  value={nuevoCantidadCambio}
+                  onChange={(e) => setNuevoCantidadCambio(e.target.value)}
+                  className="w-16 px-2 py-1.5 rounded border border-black/15 text-sm font-mono"
+                />
+                <button
+                  onClick={() => agregarItemCambio("nuevo")}
+                  className="px-3 py-1.5 rounded bg-slate-800 text-white text-xs font-bold"
+                >
+                  Agregar
+                </button>
+              </div>
+              {itemsNuevosCambio.map((it, idx) => (
+                <div key={idx} className="flex items-center justify-between text-sm py-1">
+                  <span>
+                    {it.cantidad}x {it.nombre}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono">{money(it.precio * it.cantidad)}</span>
+                    <button onClick={() => quitarItemCambio("nuevo", idx)} className="text-red-600">
+                      <X size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="border-t border-black/10 pt-3 mb-3 text-sm space-y-1">
+              <div className="flex justify-between">
+                <span>Valor devuelto</span>
+                <span className="font-mono">-{money(totalDevueltoCambio)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Valor nuevo</span>
+                <span className="font-mono">+{money(totalNuevoCambio)}</span>
+              </div>
+              <div className="flex justify-between font-bold">
+                <span>{diferenciaCambio >= 0 ? "A cobrar" : "A devolver al cliente"}</span>
+                <span className="font-mono">{money(Math.abs(diferenciaCambio))}</span>
+              </div>
+            </div>
+
+            {diferenciaCambio !== 0 && (
+              <div className="mb-3">
+                <p className="text-xs text-black/50 mb-1">Medio de pago de la diferencia</p>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {PAGOS.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => setPagoCambioSel(p.id)}
+                      className={
+                        "flex flex-col items-center gap-1 py-2 rounded-lg text-xs font-medium border transition " +
+                        (pagoCambioSel === p.id ? "bg-blue-600 text-white border-blue-600" : "border-black/10 text-black/60")
+                      }
+                    >
+                      <p.icon size={14} />
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {errorCambio && <p className="text-xs text-red-600 mb-2">{errorCambio}</p>}
+
+            <div className="flex gap-2">
+              <button
+                onClick={confirmarCambio}
+                className="flex-1 py-2.5 rounded-lg bg-purple-700 text-white font-bold text-sm hover:brightness-110"
+              >
+                Confirmar cambio
+              </button>
+              <button
+                onClick={cerrarCambio}
+                className="px-4 py-2.5 rounded-lg border border-black/10 text-sm text-black/60 hover:bg-black/5"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
