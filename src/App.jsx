@@ -265,6 +265,11 @@ export default function App() {
   const [montoEdicionRetiro, setMontoEdicionRetiro] = useState("");
   const [motivoEdicionRetiro, setMotivoEdicionRetiro] = useState("");
   const [errorEdicionRetiro, setErrorEdicionRetiro] = useState("");
+  const [agregandoRetiroManual, setAgregandoRetiroManual] = useState(false);
+  const [fechaNuevoRetiro, setFechaNuevoRetiro] = useState(todayKey());
+  const [montoNuevoRetiro, setMontoNuevoRetiro] = useState("");
+  const [motivoNuevoRetiro, setMotivoNuevoRetiro] = useState("");
+  const [errorNuevoRetiro, setErrorNuevoRetiro] = useState("");
 
   const negocio = NEGOCIOS.find((n) => n.id === negocioId) || NEGOCIOS[0];
 
@@ -925,6 +930,40 @@ export default function App() {
     persist({ ...negocioData, retiros: nuevosRetiros });
     setEditandoRetiroId(null);
     setErrorEdicionRetiro("");
+  }
+
+  function abrirAgregarRetiroManual() {
+    setAgregandoRetiroManual(true);
+    setFechaNuevoRetiro(todayKey());
+    setMontoNuevoRetiro("");
+    setMotivoNuevoRetiro("");
+    setErrorNuevoRetiro("");
+  }
+
+  function cancelarAgregarRetiroManual() {
+    setAgregandoRetiroManual(false);
+    setErrorNuevoRetiro("");
+  }
+
+  function guardarNuevoRetiroManual() {
+    const monto = Number(montoNuevoRetiro);
+    if (montoNuevoRetiro.trim() === "" || isNaN(monto) || monto <= 0) {
+      setErrorNuevoRetiro("Ingresá un monto válido.");
+      return;
+    }
+    if (!fechaNuevoRetiro) {
+      setErrorNuevoRetiro("Elegí una fecha.");
+      return;
+    }
+    const retiro = {
+      id: "r-" + Date.now(),
+      monto,
+      motivo: motivoNuevoRetiro.trim() || "Sin motivo",
+      fecha: new Date(fechaNuevoRetiro + "T12:00:00").toISOString(),
+    };
+    persist({ ...negocioData, retiros: [retiro, ...(negocioData.retiros || [])] });
+    setAgregandoRetiroManual(false);
+    setErrorNuevoRetiro("");
   }
 
   function calcularResumenPago(ventas) {
@@ -2366,30 +2405,83 @@ export default function App() {
               </div>
               <span className="font-mono font-bold text-lg text-rose-800">-{money(totalRetirosVista)}</span>
             </button>
-            {verRetiros && retirosVista.length > 0 && (
-              <div className="bg-white rounded-xl shadow-sm border border-black/5 divide-y divide-black/5 mb-6">
-                {retirosVista.map((r) => (
-                  <div key={r.id} className="p-3 flex items-center justify-between text-sm">
-                    <div>
-                      <p className="font-medium">{r.motivo}</p>
-                      <p className="text-xs text-black/40">
-                        {new Date(r.fecha).toLocaleDateString("es-AR")} {new Date(r.fecha).toLocaleTimeString("es-AR")}
-                      </p>
+            {verRetiros && (
+              <div className="mb-6">
+                {usuario.rol === "dueno" && !agregandoRetiroManual && (
+                  <button
+                    onClick={abrirAgregarRetiroManual}
+                    className="text-xs text-blue-600 font-medium hover:underline mb-2"
+                  >
+                    + Agregar retiro (para cargar uno que ya se hizo)
+                  </button>
+                )}
+                {agregandoRetiroManual && (
+                  <div className="bg-white rounded-xl shadow-sm border border-black/5 p-3 mb-2">
+                    <div className="grid grid-cols-3 gap-2 mb-2">
+                      <input
+                        type="date"
+                        value={fechaNuevoRetiro}
+                        onChange={(e) => setFechaNuevoRetiro(e.target.value)}
+                        max={todayKey()}
+                        className="px-2 py-1.5 rounded border border-black/15 text-sm"
+                      />
+                      <input
+                        type="number"
+                        placeholder="Monto"
+                        value={montoNuevoRetiro}
+                        onChange={(e) => setMontoNuevoRetiro(e.target.value)}
+                        className="px-2 py-1.5 rounded border border-black/15 text-sm font-mono"
+                      />
+                      <input
+                        placeholder="Motivo"
+                        value={motivoNuevoRetiro}
+                        onChange={(e) => setMotivoNuevoRetiro(e.target.value)}
+                        className="px-2 py-1.5 rounded border border-black/15 text-sm"
+                      />
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {usuario.rol === "dueno" && (
-                        <button
-                          onClick={() => iniciarEdicionRetiro(r)}
-                          className="w-7 h-7 rounded hover:bg-black/5 flex items-center justify-center text-black/40"
-                          title="Editar retiro"
-                        >
-                          <Pencil size={14} />
-                        </button>
-                      )}
-                      <span className="font-mono font-semibold text-red-600">-{money(r.monto)}</span>
+                    {errorNuevoRetiro && <p className="text-xs text-red-600 mb-2">{errorNuevoRetiro}</p>}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={guardarNuevoRetiroManual}
+                        className="px-3 py-1.5 rounded bg-blue-600 text-white text-xs font-bold"
+                      >
+                        Guardar retiro
+                      </button>
+                      <button
+                        onClick={cancelarAgregarRetiroManual}
+                        className="px-3 py-1.5 rounded border border-black/10 text-xs text-black/60 hover:bg-black/5"
+                      >
+                        Cancelar
+                      </button>
                     </div>
                   </div>
-                ))}
+                )}
+                {retirosVista.length > 0 && (
+                  <div className="bg-white rounded-xl shadow-sm border border-black/5 divide-y divide-black/5">
+                    {retirosVista.map((r) => (
+                      <div key={r.id} className="p-3 flex items-center justify-between text-sm">
+                        <div>
+                          <p className="font-medium">{r.motivo}</p>
+                          <p className="text-xs text-black/40">
+                            {new Date(r.fecha).toLocaleDateString("es-AR")} {new Date(r.fecha).toLocaleTimeString("es-AR")}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {usuario.rol === "dueno" && (
+                            <button
+                              onClick={() => iniciarEdicionRetiro(r)}
+                              className="w-7 h-7 rounded hover:bg-black/5 flex items-center justify-center text-black/40"
+                              title="Editar retiro"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                          )}
+                          <span className="font-mono font-semibold text-red-600">-{money(r.monto)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
