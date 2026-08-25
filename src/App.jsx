@@ -137,12 +137,13 @@ function cargarNegocioData(id) {
         return {
           productos: parsed.productos || seedProductos(id),
           ventas: parsed.ventas || [],
+          retiros: parsed.retiros || [],
           caja: parsed.caja || cajaCerradaDefault(),
         };
       }
-      return { productos: seedProductos(id), ventas: [], caja: cajaCerradaDefault() };
+      return { productos: seedProductos(id), ventas: [], retiros: [], caja: cajaCerradaDefault() };
     })
-    .catch(() => ({ productos: seedProductos(id), ventas: [], caja: cajaCerradaDefault() }));
+    .catch(() => ({ productos: seedProductos(id), ventas: [], retiros: [], caja: cajaCerradaDefault() }));
 }
 
 function LoginScreen({ onLogin }) {
@@ -335,7 +336,7 @@ export default function App() {
     };
   }, [negocioId]);
 
-  const negocioData = data[negocioId] || { productos: [], ventas: [], caja: cajaCerradaDefault() };
+  const negocioData = data[negocioId] || { productos: [], ventas: [], retiros: [], caja: cajaCerradaDefault() };
   const caja = negocioData.caja || cajaCerradaDefault();
   const listaStockBajo = useMemo(() => itemsStockBajo(negocioData.productos), [negocioData.productos]);
 
@@ -440,7 +441,7 @@ export default function App() {
     }
     persist({
       ...negocioData,
-      caja: { abierta: true, montoInicial: monto, horaApertura: new Date().toISOString(), cierres: caja.cierres, retiros: [] },
+      caja: { abierta: true, montoInicial: monto, horaApertura: new Date().toISOString(), cierres: caja.cierres },
     });
     setMontoApertura("");
     setErrorCaja("");
@@ -454,8 +455,13 @@ export default function App() {
 
   const resumenCaja = useMemo(() => calcularResumenPago(ventasDesdeApertura), [ventasDesdeApertura]);
 
-  const retiros = caja.retiros || [];
-  const totalRetiros = retiros.reduce((acc, r) => acc + r.monto, 0);
+  const retirosDesdeApertura = useMemo(() => {
+    if (!caja.abierta || !caja.horaApertura) return [];
+    const desde = new Date(caja.horaApertura).getTime();
+    return (negocioData.retiros || []).filter((r) => new Date(r.fecha).getTime() >= desde);
+  }, [negocioData.retiros, caja.abierta, caja.horaApertura]);
+
+  const totalRetiros = retirosDesdeApertura.reduce((acc, r) => acc + r.monto, 0);
   const efectivoDisponible = caja.montoInicial + (resumenCaja.efectivo || 0) - totalRetiros;
 
   function registrarRetiro() {
@@ -474,7 +480,7 @@ export default function App() {
       motivo: motivoRetiro.trim() || "Sin motivo",
       fecha: new Date().toISOString(),
     };
-    persist({ ...negocioData, caja: { ...caja, retiros: [retiro, ...retiros] } });
+    persist({ ...negocioData, retiros: [retiro, ...(negocioData.retiros || [])] });
     setMontoRetiro("");
     setMotivoRetiro("");
     setErrorRetiro("");
@@ -494,7 +500,7 @@ export default function App() {
     };
     persist({
       ...negocioData,
-      caja: { abierta: false, montoInicial: 0, horaApertura: null, cierres: [cierre, ...caja.cierres], retiros: [] },
+      caja: { abierta: false, montoInicial: 0, horaApertura: null, cierres: [cierre, ...caja.cierres] },
     });
     setMostrarCierre(false);
     setMontoApertura(String(efectivoFinal));
@@ -1009,6 +1015,12 @@ export default function App() {
 
   const resumenVista = useMemo(() => calcularResumenPago(ventasVista), [ventasVista]);
 
+  const retirosVista = useMemo(
+    () => filtrarPorPeriodo(negocioData.retiros || [], vistaTotales, fechaFiltro, fechaDesde, fechaHasta),
+    [negocioData.retiros, vistaTotales, fechaFiltro, fechaDesde, fechaHasta]
+  );
+  const totalRetirosVista = useMemo(() => retirosVista.reduce((acc, r) => acc + r.monto, 0), [retirosVista]);
+
   const totalUniformesComision = useMemo(() => {
     if (negocioId !== "colegio") return 0;
     const mapaCategoria = {};
@@ -1273,9 +1285,9 @@ export default function App() {
                     Cancelar
                   </button>
                 </div>
-                {retiros.length > 0 && (
+                {retirosDesdeApertura.length > 0 && (
                   <div className="mt-3 pt-3 border-t border-black/5 space-y-1">
-                    {retiros.map((r) => (
+                    {retirosDesdeApertura.map((r) => (
                       <div key={r.id} className="flex items-center justify-between text-xs text-black/50">
                         <span>{new Date(r.fecha).toLocaleTimeString("es-AR")} · {r.motivo}</span>
                         <span className="font-mono">-{money(r.monto)}</span>
@@ -1301,9 +1313,9 @@ export default function App() {
                     </div>
                   ))}
                 </div>
-                {retiros.length > 0 && (
+                {retirosDesdeApertura.length > 0 && (
                   <div className="bg-red-50 rounded-lg p-3 mb-4 flex items-center justify-between">
-                    <span className="text-sm text-black/60">Retiros de efectivo ({retiros.length})</span>
+                    <span className="text-sm text-black/60">Retiros de efectivo ({retirosDesdeApertura.length})</span>
                     <span className="font-mono font-bold text-red-600">-{money(totalRetiros)}</span>
                   </div>
                 )}
@@ -2378,6 +2390,31 @@ export default function App() {
                 ))
               )}
             </div>
+
+            <h2 className="font-bold mb-2 text-sm mt-6">Retiros de efectivo</h2>
+            <div className="bg-white rounded-xl shadow-sm border border-black/5 divide-y divide-black/5">
+              {retirosVista.length === 0 ? (
+                <p className="p-4 text-sm text-black/40">No hay retiros registrados en este período.</p>
+              ) : (
+                retirosVista.map((r) => (
+                  <div key={r.id} className="p-3 flex items-center justify-between text-sm">
+                    <div>
+                      <p className="font-medium">{r.motivo}</p>
+                      <p className="text-xs text-black/40">
+                        {new Date(r.fecha).toLocaleDateString("es-AR")} {new Date(r.fecha).toLocaleTimeString("es-AR")}
+                      </p>
+                    </div>
+                    <span className="font-mono font-semibold text-red-600">-{money(r.monto)}</span>
+                  </div>
+                ))
+              )}
+            </div>
+            {retirosVista.length > 0 && (
+              <div className="flex items-center justify-between text-sm px-1 mt-2">
+                <span className="text-black/50">Total retirado en el período</span>
+                <span className="font-mono font-semibold text-red-600">-{money(totalRetirosVista)}</span>
+              </div>
+            )}
 
             <div className="mt-8 pt-4 border-t border-black/10 no-print">
               {!confirmarReinicio ? (
