@@ -232,6 +232,7 @@ export default function App() {
   const [fechaDesdeColegio, setFechaDesdeColegio] = useState("");
   const [fechaHastaColegio, setFechaHastaColegio] = useState("");
   const [verComision, setVerComision] = useState(false);
+  const [verRetiros, setVerRetiros] = useState(false);
   const [verStockBajo, setVerStockBajo] = useState(false);
   const [remitoVenta, setRemitoVenta] = useState(null);
   const [confirmarReinicio, setConfirmarReinicio] = useState(false);
@@ -260,6 +261,10 @@ export default function App() {
   const [cantidadEdicionProducto, setCantidadEdicionProducto] = useState("1");
   const [errorEdicionVenta, setErrorEdicionVenta] = useState("");
   const [actualizarStockEdicion, setActualizarStockEdicion] = useState(true);
+  const [editandoRetiroId, setEditandoRetiroId] = useState(null);
+  const [montoEdicionRetiro, setMontoEdicionRetiro] = useState("");
+  const [motivoEdicionRetiro, setMotivoEdicionRetiro] = useState("");
+  const [errorEdicionRetiro, setErrorEdicionRetiro] = useState("");
 
   const negocio = NEGOCIOS.find((n) => n.id === negocioId) || NEGOCIOS[0];
 
@@ -895,6 +900,32 @@ export default function App() {
     () => negocioData.ventas.filter((v) => v.fecha.slice(0, 10) === todayKey()),
     [negocioData.ventas]
   );
+
+  function iniciarEdicionRetiro(r) {
+    setEditandoRetiroId(r.id);
+    setMontoEdicionRetiro(String(r.monto));
+    setMotivoEdicionRetiro(r.motivo || "");
+    setErrorEdicionRetiro("");
+  }
+
+  function cancelarEdicionRetiro() {
+    setEditandoRetiroId(null);
+    setErrorEdicionRetiro("");
+  }
+
+  function guardarEdicionRetiro() {
+    const monto = Number(montoEdicionRetiro);
+    if (montoEdicionRetiro.trim() === "" || isNaN(monto) || monto <= 0) {
+      setErrorEdicionRetiro("Ingresá un monto válido.");
+      return;
+    }
+    const nuevosRetiros = (negocioData.retiros || []).map((r) =>
+      r.id === editandoRetiroId ? { ...r, monto, motivo: motivoEdicionRetiro.trim() || "Sin motivo" } : r
+    );
+    persist({ ...negocioData, retiros: nuevosRetiros });
+    setEditandoRetiroId(null);
+    setErrorEdicionRetiro("");
+  }
 
   function calcularResumenPago(ventas) {
     const r = { efectivo: 0, transferencia: 0, credito: 0, debito: 0, mercadopago: 0, colegio: 0, total: 0, cantidad: ventas.length };
@@ -2323,6 +2354,47 @@ export default function App() {
               </div>
             )}
 
+            {retirosVista.length > 0 && (
+              <button
+                onClick={() => setVerRetiros((v) => !v)}
+                className="w-full bg-rose-50 border border-rose-200 rounded-xl p-4 mb-6 flex items-center justify-between hover:bg-rose-100 transition"
+              >
+                <div className="text-left">
+                  <p className="font-semibold text-sm text-rose-900">Retiros de efectivo</p>
+                  <p className="text-xs text-rose-700/70">
+                    {retirosVista.length} retiro{retirosVista.length === 1 ? "" : "s"} en el período
+                  </p>
+                </div>
+                <span className="font-mono font-bold text-lg text-rose-800">-{money(totalRetirosVista)}</span>
+              </button>
+            )}
+            {verRetiros && retirosVista.length > 0 && (
+              <div className="bg-white rounded-xl shadow-sm border border-black/5 divide-y divide-black/5 mb-6">
+                {retirosVista.map((r) => (
+                  <div key={r.id} className="p-3 flex items-center justify-between text-sm">
+                    <div>
+                      <p className="font-medium">{r.motivo}</p>
+                      <p className="text-xs text-black/40">
+                        {new Date(r.fecha).toLocaleDateString("es-AR")} {new Date(r.fecha).toLocaleTimeString("es-AR")}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {usuario.rol === "dueno" && (
+                        <button
+                          onClick={() => iniciarEdicionRetiro(r)}
+                          className="w-7 h-7 rounded hover:bg-black/5 flex items-center justify-center text-black/40"
+                          title="Editar retiro"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                      )}
+                      <span className="font-mono font-semibold text-red-600">-{money(r.monto)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {resumenCategoriaVista && (
               <>
                 <h2 className="font-bold mb-2 text-sm">Ventas por categoría</h2>
@@ -2391,31 +2463,6 @@ export default function App() {
               )}
             </div>
 
-            <h2 className="font-bold mb-2 text-sm mt-6">Retiros de efectivo</h2>
-            <div className="bg-white rounded-xl shadow-sm border border-black/5 divide-y divide-black/5">
-              {retirosVista.length === 0 ? (
-                <p className="p-4 text-sm text-black/40">No hay retiros registrados en este período.</p>
-              ) : (
-                retirosVista.map((r) => (
-                  <div key={r.id} className="p-3 flex items-center justify-between text-sm">
-                    <div>
-                      <p className="font-medium">{r.motivo}</p>
-                      <p className="text-xs text-black/40">
-                        {new Date(r.fecha).toLocaleDateString("es-AR")} {new Date(r.fecha).toLocaleTimeString("es-AR")}
-                      </p>
-                    </div>
-                    <span className="font-mono font-semibold text-red-600">-{money(r.monto)}</span>
-                  </div>
-                ))
-              )}
-            </div>
-            {retirosVista.length > 0 && (
-              <div className="flex items-center justify-between text-sm px-1 mt-2">
-                <span className="text-black/50">Total retirado en el período</span>
-                <span className="font-mono font-semibold text-red-600">-{money(totalRetirosVista)}</span>
-              </div>
-            )}
-
             <div className="mt-8 pt-4 border-t border-black/10 no-print">
               {!confirmarReinicio ? (
                 <button
@@ -2448,6 +2495,55 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {editandoRetiroId && (
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 no-print"
+          onClick={cancelarEdicionRetiro}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl w-full max-w-sm p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-bold text-lg">Editar retiro</h2>
+              <button onClick={cancelarEdicionRetiro} className="w-8 h-8 rounded hover:bg-black/5 flex items-center justify-center">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <input
+                type="number"
+                placeholder="Monto"
+                value={montoEdicionRetiro}
+                onChange={(e) => setMontoEdicionRetiro(e.target.value)}
+                className="px-3 py-2 rounded-lg border border-black/15 text-sm font-mono"
+              />
+              <input
+                placeholder="Motivo"
+                value={motivoEdicionRetiro}
+                onChange={(e) => setMotivoEdicionRetiro(e.target.value)}
+                className="px-3 py-2 rounded-lg border border-black/15 text-sm"
+              />
+            </div>
+            {errorEdicionRetiro && <p className="text-xs text-red-600 mb-2">{errorEdicionRetiro}</p>}
+            <div className="flex gap-2">
+              <button
+                onClick={guardarEdicionRetiro}
+                className="flex-1 py-2.5 rounded-lg bg-blue-600 text-white font-bold text-sm hover:brightness-110"
+              >
+                Guardar cambios
+              </button>
+              <button
+                onClick={cancelarEdicionRetiro}
+                className="px-4 py-2.5 rounded-lg border border-black/10 text-sm text-black/60 hover:bg-black/5"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {editandoVentaId && (
         <div
