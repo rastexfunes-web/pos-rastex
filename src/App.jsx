@@ -2354,20 +2354,18 @@ export default function App() {
               </div>
             )}
 
-            {retirosVista.length > 0 && (
-              <button
-                onClick={() => setVerRetiros((v) => !v)}
-                className="w-full bg-rose-50 border border-rose-200 rounded-xl p-4 mb-6 flex items-center justify-between hover:bg-rose-100 transition"
-              >
-                <div className="text-left">
-                  <p className="font-semibold text-sm text-rose-900">Retiros de efectivo</p>
-                  <p className="text-xs text-rose-700/70">
-                    {retirosVista.length} retiro{retirosVista.length === 1 ? "" : "s"} en el período
-                  </p>
-                </div>
-                <span className="font-mono font-bold text-lg text-rose-800">-{money(totalRetirosVista)}</span>
-              </button>
-            )}
+            <button
+              onClick={() => setVerRetiros((v) => !v)}
+              className="w-full bg-rose-50 border border-rose-200 rounded-xl p-4 mb-6 flex items-center justify-between hover:bg-rose-100 transition"
+            >
+              <div className="text-left">
+                <p className="font-semibold text-sm text-rose-900">Retiros de efectivo</p>
+                <p className="text-xs text-rose-700/70">
+                  {retirosVista.length} retiro{retirosVista.length === 1 ? "" : "s"} en el período
+                </p>
+              </div>
+              <span className="font-mono font-bold text-lg text-rose-800">-{money(totalRetirosVista)}</span>
+            </button>
             {verRetiros && retirosVista.length > 0 && (
               <div className="bg-white rounded-xl shadow-sm border border-black/5 divide-y divide-black/5 mb-6">
                 {retirosVista.map((r) => (
