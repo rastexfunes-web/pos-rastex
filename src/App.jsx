@@ -223,6 +223,7 @@ export default function App() {
   const [formNuevoTalle, setFormNuevoTalle] = useState({ talle: "", precio: "", stock: "" });
   const [errorTalle, setErrorTalle] = useState("");
   const [categoriaFiltro, setCategoriaFiltro] = useState("todos");
+  const [busquedaProducto, setBusquedaProducto] = useState("");
   const [talleElegido, setTalleElegido] = useState({});
   const [vistaTotales, setVistaTotales] = useState("hoy");
   const [fechaFiltro, setFechaFiltro] = useState(todayKey());
@@ -313,6 +314,7 @@ export default function App() {
     setMotivoRetiro("");
     setErrorRetiro("");
     setCategoriaFiltro("todos");
+    setBusquedaProducto("");
     setTalleElegido({});
     setEditandoTalle(null);
     setFormTalle({ precio: "", stock: "" });
@@ -401,6 +403,15 @@ export default function App() {
   function cambiarCantidad(cartId, delta) {
     setCarrito((prev) =>
       prev.map((i) => (i.cartId === cartId ? { ...i, cantidad: i.cantidad + delta } : i)).filter((i) => i.cantidad > 0)
+    );
+  }
+
+  function setCantidadExacta(cartId, valorTexto) {
+    const valor = Number(valorTexto);
+    setCarrito((prev) =>
+      prev
+        .map((i) => (i.cartId === cartId ? { ...i, cantidad: isNaN(valor) ? i.cantidad : valor } : i))
+        .filter((i) => i.cantidad > 0)
     );
   }
 
@@ -1444,6 +1455,14 @@ export default function App() {
             <div className="md:col-span-3">
               <h1 className="text-xl font-bold mb-4">Productos — {negocio.nombre}</h1>
 
+              <input
+                type="text"
+                placeholder="Buscar producto por nombre o SKU..."
+                value={busquedaProducto}
+                onChange={(e) => setBusquedaProducto(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-black/15 text-sm mb-3"
+              />
+
               {negocioId === "colegio" && (
                 <div className="flex flex-wrap gap-1.5 mb-3">
                   <button
@@ -1475,6 +1494,11 @@ export default function App() {
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {negocioData.productos
                   .filter((p) => negocioId !== "colegio" || categoriaFiltro === "todos" || p.categoria === categoriaFiltro)
+                  .filter((p) => {
+                    const q = busquedaProducto.trim().toLowerCase();
+                    if (!q) return true;
+                    return (p.nombre || "").toLowerCase().includes(q) || (p.sku || "").toLowerCase().includes(q);
+                  })
                   .map((p) => {
                     const cat = CATEGORIAS.find((c) => c.id === p.categoria);
                     return (
@@ -1542,6 +1566,17 @@ export default function App() {
                     No hay productos cargados. Andá a la pestaña Stock para agregar el primero.
                   </p>
                 )}
+                {negocioData.productos.length > 0 &&
+                  negocioData.productos.filter((p) => {
+                    const q = busquedaProducto.trim().toLowerCase();
+                    if (!q) return negocioId !== "colegio" || categoriaFiltro === "todos" || p.categoria === categoriaFiltro;
+                    return (
+                      (negocioId !== "colegio" || categoriaFiltro === "todos" || p.categoria === categoriaFiltro) &&
+                      ((p.nombre || "").toLowerCase().includes(q) || (p.sku || "").toLowerCase().includes(q))
+                    );
+                  }).length === 0 && (
+                    <p className="text-sm text-black/40 col-span-full">No encontramos productos con esa búsqueda.</p>
+                  )}
               </div>
             </div>
 
@@ -1561,7 +1596,13 @@ export default function App() {
                         <button onClick={() => cambiarCantidad(i.cartId, -1)} className="w-6 h-6 rounded bg-black/5 hover:bg-black/10 flex items-center justify-center">
                           <Minus size={12} />
                         </button>
-                        <span className="w-5 text-center font-mono">{i.cantidad}</span>
+                        <input
+                          type="number"
+                          min="1"
+                          value={i.cantidad}
+                          onChange={(e) => setCantidadExacta(i.cartId, e.target.value)}
+                          className="w-12 text-center font-mono px-1 py-0.5 rounded border border-black/15 text-sm"
+                        />
                         <button onClick={() => cambiarCantidad(i.cartId, 1)} className="w-6 h-6 rounded bg-black/5 hover:bg-black/10 flex items-center justify-center">
                           <Plus size={12} />
                         </button>
