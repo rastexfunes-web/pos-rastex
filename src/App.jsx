@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import {
   Store, Package, BarChart3, Plus, Minus, Trash2, Banknote, CreditCard,
   ArrowLeftRight, ChevronDown, Pencil, X, Check, Wallet, QrCode, LogOut, Building2, Printer,
-  Download, MessageCircle, Receipt,
+  Download, MessageCircle, Receipt, RefreshCw,
 } from "lucide-react";
 import { storage, loginConPin, logout } from "./firebase.js";
 
@@ -205,6 +205,7 @@ export default function App() {
   const [tab, setTab] = useState("venta");
   const [data, setData] = useState({});
   const [loading, setLoading] = useState(true);
+  const [actualizando, setActualizando] = useState(false);
   const [carrito, setCarrito] = useState([]);
   const [pagoSel, setPagoSel] = useState("efectivo");
   const [descuentoPct, setDescuentoPct] = useState("");
@@ -345,6 +346,25 @@ export default function App() {
       cancelado = true;
     };
   }, [negocioId]);
+
+  function actualizarAhora() {
+    setActualizando(true);
+    cargarNegocioData(negocioId)
+      .then((val) => {
+        setData((prev) => ({ ...prev, [negocioId]: val }));
+      })
+      .finally(() => setActualizando(false));
+  }
+
+  useEffect(() => {
+    if (!usuario) return;
+    const intervalo = setInterval(() => {
+      cargarNegocioData(negocioId).then((val) => {
+        setData((prev) => ({ ...prev, [negocioId]: val }));
+      });
+    }, 20000);
+    return () => clearInterval(intervalo);
+  }, [usuario, negocioId]);
 
   const negocioData = data[negocioId] || { productos: [], ventas: [], retiros: [], caja: cajaCerradaDefault() };
   const caja = negocioData.caja || cajaCerradaDefault();
@@ -1208,6 +1228,13 @@ export default function App() {
                 </div>
               )}
             </div>
+            <button
+              onClick={actualizarAhora}
+              title="Actualizar productos y ventas"
+              className="w-9 h-9 rounded-lg bg-white/15 hover:bg-white/25 flex items-center justify-center shrink-0"
+            >
+              <RefreshCw size={16} className={actualizando ? "animate-spin" : ""} />
+            </button>
             <button
               onClick={cerrarSesion}
               title="Cerrar sesión"
