@@ -199,7 +199,8 @@ exports.generarFacturaPDF = functions
 
       return { ok: true, url: res.file };
     } catch (err) {
-      console.error("Error generando PDF:", err);
-      throw new functions.https.HttpsError("internal", "No se pudo generar el PDF: " + (err.message || String(err)));
+      const detalle = err.response && err.response.data ? JSON.stringify(err.response.data, null, 2) : err.message || String(err);
+      console.error("Error generando PDF:", detalle);
+      throw new functions.https.HttpsError("internal", "No se pudo generar el PDF: " + detalle);
     }
   });
