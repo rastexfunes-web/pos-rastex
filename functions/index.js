@@ -3,18 +3,26 @@
  * venta de Rastex Gestión.
  *
  * Usa la librería "afip.js" (@afipsdk/afip.js), que encapsula WSAA
- * (autenticación) y WSFEv1 (facturación electrónica).
+ * (autenticación) y WSFEv1 (facturación electrónica). Usa un access_token
+ * de https://app.afipsdk.com (gratis, plan Free) junto con nuestro propio
+ * certificado.
  *
  * DATOS DE ESTA CUENTA:
  *   CUIT: 20291101519 (Marcelo Silva, monotributista)
  *   Punto de venta: 10
  *   Ambiente: Homologación (pruebas) — cuando esté todo probado, se pasa
- *   a producción (ver notas al final del README de INTEGRACION_APP.md)
+ *   a producción.
  */
 
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const Afip = require("@afipsdk/afip.js");
+
+// Arregla un problema conocido de conexión SSL/TLS entre Node 20 y los
+// servidores de homologación de ARCA (usan una clave Diffie-Hellman vieja
+// que Node rechaza por defecto).
+const tls = require("tls");
+tls.DEFAULT_MIN_DH_SIZE = 1024;
 
 if (!admin.apps.length) admin.initializeApp();
 
@@ -27,12 +35,13 @@ function crearClienteAfip() {
     CUIT,
     cert: process.env.ARCA_CERT,
     key: process.env.ARCA_KEY,
+    access_token: process.env.ARCA_ACCESS_TOKEN,
     production: false, // AJUSTAR a true cuando pasemos a producción
   });
 }
 
 exports.facturarVenta = functions
-  .runWith({ secrets: ["ARCA_CERT", "ARCA_KEY"] })
+  .runWith({ secrets: ["ARCA_CERT", "ARCA_KEY", "ARCA_ACCESS_TOKEN"] })
   .https.onCall(async (data, context) => {
     const { total } = data;
 
