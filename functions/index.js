@@ -32,7 +32,7 @@ tls.DEFAULT_MIN_DH_SIZE = 1024;
 if (!admin.apps.length) admin.initializeApp();
 
 const CUIT = 20291101519;
-const PUNTO_VENTA = 10;
+const PUNTO_VENTA = 11; // Punto de venta habilitado para Web Services (el 10 es solo para "Comprobantes en línea" manual)
 const ALICUOTA_IVA = 0.21;
 const ID_ALICUOTA_21 = 5; // Id de ARCA para IVA 21%
 
