@@ -199,8 +199,8 @@ exports.generarFacturaPDF = functions
 
       return { ok: true, url: res.file };
     } catch (err) {
-      const detalle = err.response && err.response.data ? JSON.stringify(err.response.data, null, 2) : err.message || String(err);
-      console.error("Error generando PDF:", detalle);
-      throw new functions.https.HttpsError("internal", "No se pudo generar el PDF: " + detalle);
+      const detalle = JSON.stringify(err, Object.getOwnPropertyNames(err), 2);
+      console.error("Error generando PDF (detalle completo):", detalle);
+      throw new functions.https.HttpsError("internal", "No se pudo generar el PDF: " + detalle.slice(0, 800));
     }
   });
