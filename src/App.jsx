@@ -209,6 +209,8 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [actualizando, setActualizando] = useState(false);
   const [facturando, setFacturando] = useState(false);
+  const [tipoClienteFactura, setTipoClienteFactura] = useState("consumidor_final");
+  const [cuitClienteFactura, setCuitClienteFactura] = useState("");
   const [carrito, setCarrito] = useState([]);
   const [pagoSel, setPagoSel] = useState("efectivo");
   const [descuentoPct, setDescuentoPct] = useState("");
@@ -436,13 +438,21 @@ export default function App() {
   async function confirmarVenta(facturar, tipoPagoForzado) {
     if (carrito.length === 0) return;
     if (!tipoPagoForzado && pagoMultiple && !pagoMultipleValido) return;
+    if (facturar && tipoClienteFactura === "responsable_inscripto" && cuitClienteFactura.replace(/\D/g, "").length !== 11) {
+      alert("Para Factura A necesitás el CUIT completo del cliente (11 dígitos).");
+      return;
+    }
 
     let datosFactura = null;
     if (facturar) {
       setFacturando(true);
       try {
         const facturarVentaFn = httpsCallable(functionsInstance, "facturarVenta");
-        const res = await facturarVentaFn({ total: totalConDescuento });
+        const res = await facturarVentaFn({
+          total: totalConDescuento,
+          tipoCliente: tipoClienteFactura,
+          cuitCliente: tipoClienteFactura === "responsable_inscripto" ? cuitClienteFactura.replace(/\D/g, "") : null,
+        });
         datosFactura = res.data;
       } catch (err) {
         alert(
@@ -491,6 +501,8 @@ export default function App() {
       caeVencimiento: datosFactura ? datosFactura.caeVencimiento : null,
       numeroComprobante: datosFactura ? datosFactura.numeroComprobante : null,
       puntoVenta: datosFactura ? datosFactura.puntoVenta : null,
+      tipoComprobante: datosFactura ? datosFactura.tipoComprobante : null,
+      cuitCliente: facturar && tipoClienteFactura === "responsable_inscripto" ? cuitClienteFactura.replace(/\D/g, "") : null,
     };
     persist({ ...negocioData, productos: nuevosProductos, ventas: [venta, ...negocioData.ventas] });
     setCarrito([]);
@@ -498,6 +510,8 @@ export default function App() {
     setRecargoPct("");
     setPagoMultiple(false);
     setMontosPago({ efectivo: "", transferencia: "", credito: "", debito: "", mercadopago: "" });
+    setTipoClienteFactura("consumidor_final");
+    setCuitClienteFactura("");
   }
 
   function abrirCaja() {
@@ -1059,6 +1073,13 @@ export default function App() {
     return PAGOS.find((p) => p.id === v.tipoPago)?.label || v.tipoPago;
   }
 
+  function labelTipoComprobante(tipo) {
+    if (tipo === 1) return "Factura A";
+    if (tipo === 6) return "Factura B";
+    if (tipo === 11) return "Factura C";
+    return "Comprobante";
+  }
+
   function textoRemito(v) {
     const fecha = new Date(v.fecha);
     const lineas = [];
@@ -1076,7 +1097,8 @@ export default function App() {
     lineas.push("Medio de pago: " + labelPago(v));
     lineas.push("Estado: " + (v.facturada ? "Facturada" : "Factura pendiente"));
     if (v.cae) {
-      lineas.push("Pto. Vta: " + v.puntoVenta + " — Comprobante N° " + v.numeroComprobante);
+      lineas.push(labelTipoComprobante(v.tipoComprobante) + " — Pto. Vta: " + v.puntoVenta + " — Comprobante N° " + v.numeroComprobante);
+      if (v.cuitCliente) lineas.push("CUIT cliente: " + v.cuitCliente);
       lineas.push("CAE: " + v.cae + " — Vto: " + v.caeVencimiento);
     }
     return lineas.join("\n");
@@ -1751,6 +1773,39 @@ export default function App() {
                 </div>
               )}
 
+              <div className="mb-2">
+                <p className="text-xs font-medium text-black/50 mb-1">Factura para</p>
+                <div className="grid grid-cols-2 gap-1.5 mb-1.5">
+                  <button
+                    onClick={() => setTipoClienteFactura("consumidor_final")}
+                    className={
+                      "py-1.5 rounded-lg text-xs font-medium border transition " +
+                      (tipoClienteFactura === "consumidor_final" ? "bg-blue-600 text-white border-blue-600" : "border-black/10 text-black/60 hover:border-black/30")
+                    }
+                  >
+                    Consumidor Final (Fact. B)
+                  </button>
+                  <button
+                    onClick={() => setTipoClienteFactura("responsable_inscripto")}
+                    className={
+                      "py-1.5 rounded-lg text-xs font-medium border transition " +
+                      (tipoClienteFactura === "responsable_inscripto" ? "bg-blue-600 text-white border-blue-600" : "border-black/10 text-black/60 hover:border-black/30")
+                    }
+                  >
+                    Resp. Inscripto (Fact. A)
+                  </button>
+                </div>
+                {tipoClienteFactura === "responsable_inscripto" && (
+                  <input
+                    type="text"
+                    placeholder="CUIT del cliente (sin guiones)"
+                    value={cuitClienteFactura}
+                    onChange={(e) => setCuitClienteFactura(e.target.value)}
+                    className="w-full px-3 py-1.5 rounded-lg border border-black/15 text-sm font-mono"
+                  />
+                )}
+              </div>
+
               <button
                 onClick={() => confirmarVenta(true)}
                 disabled={carrito.length === 0 || (pagoMultiple && !pagoMultipleValido) || facturando}
@@ -2223,9 +2278,10 @@ export default function App() {
               {remitoVenta.cae && (
                 <>
                   <div className="border-t border-dashed border-black/20 my-2" />
-                  <p className="mb-0.5 text-xs">
-                    Pto. Vta: {remitoVenta.puntoVenta} — Comprobante N° {remitoVenta.numeroComprobante}
+                  <p className="mb-0.5 text-xs font-bold">
+                    {labelTipoComprobante(remitoVenta.tipoComprobante)} — Pto. Vta: {remitoVenta.puntoVenta} — N° {remitoVenta.numeroComprobante}
                   </p>
+                  {remitoVenta.cuitCliente && <p className="mb-0.5 text-xs">CUIT cliente: {remitoVenta.cuitCliente}</p>}
                   <p className="text-xs">
                     CAE: {remitoVenta.cae} — Vto: {remitoVenta.caeVencimiento}
                   </p>
