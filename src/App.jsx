@@ -508,6 +508,8 @@ export default function App() {
       numeroComprobante: datosFactura ? datosFactura.numeroComprobante : null,
       puntoVenta: datosFactura ? datosFactura.puntoVenta : null,
       tipoComprobante: datosFactura ? datosFactura.tipoComprobante : null,
+      impNeto: datosFactura ? datosFactura.impNeto : null,
+      impIVA: datosFactura ? datosFactura.impIVA : null,
       cuitCliente: facturar && tipoClienteFactura === "responsable_inscripto" ? cuitClienteFactura.replace(/\D/g, "") : null,
     };
     persist({ ...negocioData, productos: nuevosProductos, ventas: [venta, ...negocioData.ventas] });
