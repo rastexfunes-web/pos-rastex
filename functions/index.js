@@ -8,10 +8,15 @@
  * certificado.
  *
  * DATOS DE ESTA CUENTA:
- *   CUIT: 20291101519 (Marcelo Silva, monotributista)
+ *   CUIT: 20291101519 (Marcelo Silva, Responsable Inscripto)
  *   Punto de venta: 10
  *   Ambiente: Homologación (pruebas) — cuando esté todo probado, se pasa
  *   a producción.
+ *
+ * Por defecto factura a Consumidor Final (Factura B). Si se pasa
+ * tipoCliente: "responsable_inscripto" junto con cuitCliente, factura
+ * Factura A a ese CUIT. En ambos casos se discrimina IVA al 21%, porque
+ * los precios cargados en Stock ya lo incluyen.
  */
 
 const functions = require("firebase-functions");
@@ -28,7 +33,8 @@ if (!admin.apps.length) admin.initializeApp();
 
 const CUIT = 20291101519;
 const PUNTO_VENTA = 10;
-const TIPO_COMPROBANTE = 11; // Factura C (monotributista, no discrimina IVA)
+const ALICUOTA_IVA = 0.21;
+const ID_ALICUOTA_21 = 5; // Id de ARCA para IVA 21%
 
 function crearClienteAfip() {
   return new Afip({
@@ -43,40 +49,59 @@ function crearClienteAfip() {
 exports.facturarVenta = functions
   .runWith({ secrets: ["ARCA_CERT", "ARCA_KEY", "ARCA_ACCESS_TOKEN"] })
   .https.onCall(async (data, context) => {
-    const { total } = data;
+    const { total, tipoCliente, cuitCliente } = data;
 
     if (!total || total <= 0) {
       throw new functions.https.HttpsError("invalid-argument", "El total de la venta tiene que ser mayor a 0.");
     }
 
+    const esRI = tipoCliente === "responsable_inscripto";
+
+    const CbteTipo = esRI ? 1 : 6; // 1 = Factura A, 6 = Factura B
+    const DocTipo = esRI ? 80 : 99; // 80 = CUIT, 99 = Consumidor Final sin identificar
+    const CondicionIVAReceptorId = esRI ? 1 : 5; // 1 = Responsable Inscripto, 5 = Consumidor Final
+
+    let DocNro = 0;
+    if (esRI) {
+      DocNro = Number(String(cuitCliente || "").replace(/\D/g, ""));
+      if (!DocNro || DocNro <= 0) {
+        throw new functions.https.HttpsError("invalid-argument", "Para Factura A necesitamos el CUIT del cliente.");
+      }
+    }
+
     const afip = crearClienteAfip();
 
     try {
-      const ultimoNro = await afip.ElectronicBilling.getLastVoucher(PUNTO_VENTA, TIPO_COMPROBANTE);
+      const ultimoNro = await afip.ElectronicBilling.getLastVoucher(PUNTO_VENTA, CbteTipo);
       const nuevoNro = ultimoNro + 1;
 
       const hoy = new Date();
       const fechaCbte = hoy.toISOString().slice(0, 10).replace(/-/g, "");
+
       const totalRedondeado = Math.round(total * 100) / 100;
+      const impNeto = Math.round((totalRedondeado / (1 + ALICUOTA_IVA)) * 100) / 100;
+      const impIVA = Math.round((totalRedondeado - impNeto) * 100) / 100;
 
       const comprobante = {
         CantReg: 1,
         PtoVta: PUNTO_VENTA,
-        CbteTipo: TIPO_COMPROBANTE,
+        CbteTipo,
         Concepto: 1,
-        DocTipo: 99,
-        DocNro: 0,
+        DocTipo,
+        DocNro,
+        CondicionIVAReceptorId,
         CbteDesde: nuevoNro,
         CbteHasta: nuevoNro,
         CbteFch: fechaCbte,
         ImpTotal: totalRedondeado,
         ImpTotConc: 0,
-        ImpNeto: totalRedondeado,
+        ImpNeto: impNeto,
         ImpOpEx: 0,
-        ImpIVA: 0,
+        ImpIVA: impIVA,
         ImpTrib: 0,
         MonId: "PES",
         MonCotiz: 1,
+        Iva: [{ Id: ID_ALICUOTA_21, BaseImp: impNeto, Importe: impIVA }],
       };
 
       const resultado = await afip.ElectronicBilling.createVoucher(comprobante);
@@ -87,7 +112,9 @@ exports.facturarVenta = functions
         caeVencimiento: resultado.CAEFchVto,
         numeroComprobante: nuevoNro,
         puntoVenta: PUNTO_VENTA,
-        tipoComprobante: TIPO_COMPROBANTE,
+        tipoComprobante: CbteTipo,
+        impNeto,
+        impIVA,
       };
     } catch (err) {
       console.error("Error facturando en ARCA:", err);
