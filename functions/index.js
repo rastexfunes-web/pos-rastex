@@ -191,8 +191,11 @@ exports.generarFacturaPDF = functions
               description: i.nombre,
               quantity: i.cantidad,
               unit_price: i.precio,
-              amount: Math.round(i.precio * i.cantidad * 100) / 100,
+              subtotal: Math.round(i.precio * i.cantidad * 100) / 100,
             })),
+            vat_amount: impIVA,
+            tributes_amount: 0,
+            total_amount: total,
           },
         },
       });
