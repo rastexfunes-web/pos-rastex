@@ -139,7 +139,17 @@ exports.facturarVenta = functions
 exports.generarFacturaPDF = functions
   .runWith({ secrets: ["ARCA_ACCESS_TOKEN"] })
   .https.onCall(async (data, context) => {
-    const { items, total, impNeto, impIVA, tipoComprobante, puntoVenta, numeroComprobante, cae, caeVencimiento, tipoCliente, cuitCliente } = data;
+    const { items, total, tipoComprobante, puntoVenta, numeroComprobante, cae, caeVencimiento, tipoCliente, cuitCliente } = data;
+    let { impNeto, impIVA } = data;
+
+    // Malla de seguridad: si por algún motivo no vinieron calculados
+    // (ventas viejas facturadas antes de este agregado), los recalculamos
+    // acá mismo con la misma alícuota de siempre.
+    if (impNeto == null || impIVA == null) {
+      const totalNum = Math.round((total || 0) * 100) / 100;
+      impNeto = Math.round((totalNum / (1 + ALICUOTA_IVA)) * 100) / 100;
+      impIVA = Math.round((totalNum - impNeto) * 100) / 100;
+    }
 
     if (!cae) {
       throw new functions.https.HttpsError("invalid-argument", "Esta venta todavía no tiene CAE.");
@@ -156,8 +166,10 @@ exports.generarFacturaPDF = functions
     }
 
     function formatearFechaCAE(caeFchVto) {
-      // viene como YYYYMMDD
-      return caeFchVto.slice(6, 8) + "/" + caeFchVto.slice(4, 6) + "/" + caeFchVto.slice(0, 4);
+      // Limpia cualquier separador y se queda solo con los dígitos, por si
+      // llega como "20260917" o como "2026-09-17".
+      const soloDigitos = String(caeFchVto).replace(/\D/g, "");
+      return soloDigitos.slice(6, 8) + "/" + soloDigitos.slice(4, 6) + "/" + soloDigitos.slice(0, 4);
     }
 
     try {
