@@ -40,8 +40,8 @@ const DATOS_EMISOR = {
   business_name: "Marcelo Fernando Silva",
   address: "Calle 4D 4603, Funes, Santa Fe",
   iva_condition: "Responsable Inscripto",
-  gross_income: "Pendiente", // AJUSTAR cuando tengas el número de Ingresos Brutos
-  activity_start_date: "01/08/2024",
+  gross_income: "0213281643",
+  activity_start_date: "01/04/2004",
 };
 
 function crearClienteAfip() {
