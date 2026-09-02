@@ -4,7 +4,9 @@ import {
   ArrowLeftRight, ChevronDown, Pencil, X, Check, Wallet, QrCode, LogOut, Building2, Printer,
   Download, MessageCircle, Receipt, RefreshCw,
 } from "lucide-react";
-import { storage, loginConPin, logout } from "./firebase.js";
+import { storage, loginConPin, logout, functionsInstance } from "./firebase.js";
+import { httpsCallable } from "firebase/functions";
+
 
 const NEGOCIOS = [
   { id: "colegio", nombre: "Colegio", color: "#3F6C51" },
@@ -206,6 +208,7 @@ export default function App() {
   const [data, setData] = useState({});
   const [loading, setLoading] = useState(true);
   const [actualizando, setActualizando] = useState(false);
+  const [facturando, setFacturando] = useState(false);
   const [carrito, setCarrito] = useState([]);
   const [pagoSel, setPagoSel] = useState("efectivo");
   const [descuentoPct, setDescuentoPct] = useState("");
@@ -430,9 +433,28 @@ export default function App() {
   const diferenciaMultiple = Math.round((totalConDescuento - totalAsignadoMultiple) * 100) / 100;
   const pagoMultipleValido = pagoMultiple && Math.abs(diferenciaMultiple) < 1 && totalAsignadoMultiple > 0;
 
-  function confirmarVenta(facturar, tipoPagoForzado) {
+  async function confirmarVenta(facturar, tipoPagoForzado) {
     if (carrito.length === 0) return;
     if (!tipoPagoForzado && pagoMultiple && !pagoMultipleValido) return;
+
+    let datosFactura = null;
+    if (facturar) {
+      setFacturando(true);
+      try {
+        const facturarVentaFn = httpsCallable(functionsInstance, "facturarVenta");
+        const res = await facturarVentaFn({ total: totalConDescuento });
+        datosFactura = res.data;
+      } catch (err) {
+        alert(
+          "No se pudo facturar en ARCA: " +
+            (err.message || String(err)) +
+            "\n\nLa venta se va a guardar igual, marcada como 'Factura pendiente' para reintentar después."
+        );
+        facturar = false;
+      }
+      setFacturando(false);
+    }
+
     const nuevosProductos = negocioData.productos.map((p) => {
       if (tieneTalles(p)) {
         const nuevosTalles = p.talles.map((t) => {
@@ -465,6 +487,10 @@ export default function App() {
       tipoPago: tipoPagoForzado || (pagoMultiple ? "mixto" : pagoSel),
       desglosePago,
       facturada: facturar,
+      cae: datosFactura ? datosFactura.cae : null,
+      caeVencimiento: datosFactura ? datosFactura.caeVencimiento : null,
+      numeroComprobante: datosFactura ? datosFactura.numeroComprobante : null,
+      puntoVenta: datosFactura ? datosFactura.puntoVenta : null,
     };
     persist({ ...negocioData, productos: nuevosProductos, ventas: [venta, ...negocioData.ventas] });
     setCarrito([]);
@@ -1049,6 +1075,10 @@ export default function App() {
     lineas.push("TOTAL: " + money(v.total));
     lineas.push("Medio de pago: " + labelPago(v));
     lineas.push("Estado: " + (v.facturada ? "Facturada" : "Factura pendiente"));
+    if (v.cae) {
+      lineas.push("Pto. Vta: " + v.puntoVenta + " — Comprobante N° " + v.numeroComprobante);
+      lineas.push("CAE: " + v.cae + " — Vto: " + v.caeVencimiento);
+    }
     return lineas.join("\n");
   }
 
@@ -1723,10 +1753,10 @@ export default function App() {
 
               <button
                 onClick={() => confirmarVenta(true)}
-                disabled={carrito.length === 0 || (pagoMultiple && !pagoMultipleValido)}
+                disabled={carrito.length === 0 || (pagoMultiple && !pagoMultipleValido) || facturando}
                 className="w-full py-2.5 rounded-lg bg-blue-600 text-white font-bold text-sm disabled:opacity-30 hover:brightness-110 transition mb-2"
               >
-                Facturar
+                {facturando ? "Facturando en ARCA..." : "Facturar"}
               </button>
               <button
                 onClick={() => confirmarVenta(false)}
@@ -2190,6 +2220,17 @@ export default function App() {
               <p className={remitoVenta.facturada ? "text-green-700" : "text-black/50"}>
                 Estado: {remitoVenta.facturada ? "Facturada" : "Factura pendiente"}
               </p>
+              {remitoVenta.cae && (
+                <>
+                  <div className="border-t border-dashed border-black/20 my-2" />
+                  <p className="mb-0.5 text-xs">
+                    Pto. Vta: {remitoVenta.puntoVenta} — Comprobante N° {remitoVenta.numeroComprobante}
+                  </p>
+                  <p className="text-xs">
+                    CAE: {remitoVenta.cae} — Vto: {remitoVenta.caeVencimiento}
+                  </p>
+                </>
+              )}
             </div>
           </div>
         ) : tab === "cuentacolegio" ? (
