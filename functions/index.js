@@ -47,15 +47,15 @@ const DATOS_EMISOR = {
 function crearClienteAfip() {
   return new Afip({
     CUIT,
-    cert: process.env.ARCA_CERT,
-    key: process.env.ARCA_KEY,
+    cert: process.env.ARCA_CERT_PROD,
+    key: process.env.ARCA_KEY_PROD,
     access_token: process.env.ARCA_ACCESS_TOKEN,
-    production: false, // AJUSTAR a true cuando pasemos a producción
+    production: true, // Ambiente real — las facturas generadas tienen validez fiscal
   });
 }
 
 exports.facturarVenta = functions
-  .runWith({ secrets: ["ARCA_CERT", "ARCA_KEY", "ARCA_ACCESS_TOKEN"] })
+  .runWith({ secrets: ["ARCA_CERT_PROD", "ARCA_KEY_PROD", "ARCA_ACCESS_TOKEN"] })
   .https.onCall(async (data, context) => {
     const { total, tipoCliente, cuitCliente } = data;
 
