@@ -211,6 +211,8 @@ export default function App() {
   const [facturando, setFacturando] = useState(false);
   const [tipoClienteFactura, setTipoClienteFactura] = useState("consumidor_final");
   const [cuitClienteFactura, setCuitClienteFactura] = useState("");
+  const [generandoPdf, setGenerandoPdf] = useState(false);
+  const [urlPdfFactura, setUrlPdfFactura] = useState(null);
   const [carrito, setCarrito] = useState([]);
   const [pagoSel, setPagoSel] = useState("efectivo");
   const [descuentoPct, setDescuentoPct] = useState("");
@@ -374,6 +376,10 @@ export default function App() {
   }, [usuario, negocioId]);
 
   const negocioData = data[negocioId] || { productos: [], ventas: [], retiros: [], caja: cajaCerradaDefault() };
+
+  useEffect(() => {
+    setUrlPdfFactura(null);
+  }, [remitoVenta]);
   const caja = negocioData.caja || cajaCerradaDefault();
   const listaStockBajo = useMemo(() => itemsStockBajo(negocioData.productos), [negocioData.productos]);
 
@@ -1117,6 +1123,41 @@ export default function App() {
   function compartirRemitoWhatsapp(v) {
     const texto = encodeURIComponent(textoRemito(v));
     window.open("https://wa.me/?text=" + texto, "_blank");
+  }
+
+  async function generarPdfFactura(v) {
+    setGenerandoPdf(true);
+    try {
+      const generarPdfFn = httpsCallable(functionsInstance, "generarFacturaPDF");
+      const res = await generarPdfFn({
+        items: v.items,
+        total: v.total,
+        tipoComprobante: v.tipoComprobante,
+        puntoVenta: v.puntoVenta,
+        numeroComprobante: v.numeroComprobante,
+        cae: v.cae,
+        caeVencimiento: v.caeVencimiento,
+        tipoCliente: v.cuitCliente ? "responsable_inscripto" : "consumidor_final",
+        cuitCliente: v.cuitCliente || null,
+      });
+      setUrlPdfFactura(res.data.url);
+      return res.data.url;
+    } catch (err) {
+      alert("No se pudo generar el PDF de la factura: " + (err.message || String(err)));
+      return null;
+    } finally {
+      setGenerandoPdf(false);
+    }
+  }
+
+  async function descargarPdfFactura(v) {
+    const url = urlPdfFactura || (await generarPdfFactura(v));
+    if (url) window.open(url, "_blank");
+  }
+
+  async function compartirPdfFacturaWhatsapp(v) {
+    const url = urlPdfFactura || (await generarPdfFactura(v));
+    if (url) window.open("https://wa.me/?text=" + encodeURIComponent(url), "_blank");
   }
 
   function calcularResumenCategoria(ventas, productos) {
@@ -2230,6 +2271,24 @@ export default function App() {
             <div className="flex items-center justify-between mb-4 no-print flex-wrap gap-2">
               <h1 className="text-xl font-bold">Remito</h1>
               <div className="flex items-center gap-2 flex-wrap">
+                {remitoVenta.cae && (
+                  <>
+                    <button
+                      onClick={() => descargarPdfFactura(remitoVenta)}
+                      disabled={generandoPdf}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-40"
+                    >
+                      <Download size={14} /> {generandoPdf ? "Generando..." : "Descargar factura (PDF)"}
+                    </button>
+                    <button
+                      onClick={() => compartirPdfFacturaWhatsapp(remitoVenta)}
+                      disabled={generandoPdf}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-green-200 bg-green-50 text-xs font-medium text-green-700 hover:bg-green-100 disabled:opacity-40"
+                    >
+                      <MessageCircle size={14} /> {generandoPdf ? "Generando..." : "Compartir factura"}
+                    </button>
+                  </>
+                )}
                 <button
                   onClick={() => descargarRemito(remitoVenta)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-black/15 text-xs font-medium text-black/60 hover:bg-black/5"
