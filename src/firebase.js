@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, getDoc, setDoc } from "firebase/firestore";
 import { getAuth, signInWithEmailAndPassword, signOut } from "firebase/auth";
+import { getFunctions } from "firebase/functions";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBcaNMKlCo83RgTy7xrMZe5bvZADFEdODk",
@@ -14,6 +15,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const auth = getAuth(app);
+export const functionsInstance = getFunctions(app);
 
 // Mapea el PIN de 4 dígitos que escribe la persona a un usuario real de Firebase Auth.
 const CREDENCIALES_POR_PIN = {
