@@ -36,6 +36,14 @@ const PUNTO_VENTA = 10;
 const ALICUOTA_IVA = 0.21;
 const ID_ALICUOTA_21 = 5; // Id de ARCA para IVA 21%
 
+const DATOS_EMISOR = {
+  business_name: "Marcelo Fernando Silva",
+  address: "Calle 4D 4603, Funes, Santa Fe",
+  iva_condition: "Responsable Inscripto",
+  gross_income: "Pendiente", // AJUSTAR cuando tengas el número de Ingresos Brutos
+  activity_start_date: "01/08/2024",
+};
+
 function crearClienteAfip() {
   return new Afip({
     CUIT,
@@ -119,5 +127,79 @@ exports.facturarVenta = functions
     } catch (err) {
       console.error("Error facturando en ARCA:", err);
       throw new functions.https.HttpsError("internal", "ARCA rechazó la factura: " + (err.message || String(err)));
+    }
+  });
+
+/**
+ * generarFacturaPDF — Genera el PDF oficial de una factura ya emitida
+ * (con su CAE) usando los templates de AfipSDK, y devuelve una URL para
+ * descargarlo. La URL dura 24hs, así que hay que descargarla o
+ * compartirla enseguida.
+ */
+exports.generarFacturaPDF = functions
+  .runWith({ secrets: ["ARCA_ACCESS_TOKEN"] })
+  .https.onCall(async (data, context) => {
+    const { items, total, impNeto, impIVA, tipoComprobante, puntoVenta, numeroComprobante, cae, caeVencimiento, tipoCliente, cuitCliente } = data;
+
+    if (!cae) {
+      throw new functions.https.HttpsError("invalid-argument", "Esta venta todavía no tiene CAE.");
+    }
+
+    const afip = new Afip({ access_token: process.env.ARCA_ACCESS_TOKEN });
+
+    const esRI = tipoCliente === "responsable_inscripto";
+    const templateName = tipoComprobante === 1 ? "invoice-a" : "invoice-b";
+
+    function formatearFecha(fechaISO) {
+      const d = new Date(fechaISO);
+      return String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + "/" + d.getFullYear();
+    }
+
+    function formatearFechaCAE(caeFchVto) {
+      // viene como YYYYMMDD
+      return caeFchVto.slice(6, 8) + "/" + caeFchVto.slice(4, 6) + "/" + caeFchVto.slice(0, 4);
+    }
+
+    try {
+      const res = await afip.ElectronicBilling.createPDF({
+        file_name: "factura-" + puntoVenta + "-" + numeroComprobante,
+        template: {
+          name: templateName,
+          params: {
+            voucher_number: numeroComprobante,
+            sales_point: puntoVenta,
+            issue_date: formatearFecha(new Date().toISOString()),
+            cae_due_date: formatearFechaCAE(caeVencimiento),
+            issuer_cuit: CUIT,
+            cae: cae,
+            issuer_business_name: DATOS_EMISOR.business_name,
+            issuer_address: DATOS_EMISOR.address,
+            issuer_iva_condition: DATOS_EMISOR.iva_condition,
+            issuer_gross_income: DATOS_EMISOR.gross_income,
+            issuer_activity_start_date: DATOS_EMISOR.activity_start_date,
+            receiver_name: esRI ? "CUIT " + cuitCliente : "Consumidor Final",
+            receiver_address: "-",
+            receiver_document_type: esRI ? 80 : 99,
+            receiver_document_number: esRI ? cuitCliente : 0,
+            receiver_iva_condition: esRI ? "Responsable Inscripto" : "Consumidor Final",
+            sale_condition: "Contado",
+            currency_id: "ARS",
+            currency_rate: 1,
+            concept: 1,
+            items: (items || []).map((i, idx) => ({
+              code: String(idx + 1),
+              description: i.nombre,
+              quantity: i.cantidad,
+              unit_price: i.precio,
+              amount: Math.round(i.precio * i.cantidad * 100) / 100,
+            })),
+          },
+        },
+      });
+
+      return { ok: true, url: res.file };
+    } catch (err) {
+      console.error("Error generando PDF:", err);
+      throw new functions.https.HttpsError("internal", "No se pudo generar el PDF: " + (err.message || String(err)));
     }
   });
