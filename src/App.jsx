@@ -521,6 +521,7 @@ export default function App() {
     setMontosPago({ efectivo: "", transferencia: "", credito: "", debito: "", mercadopago: "" });
     setTipoClienteFactura("consumidor_final");
     setCuitClienteFactura("");
+    setRemitoVenta(venta);
   }
 
   function abrirCaja() {
@@ -1373,7 +1374,10 @@ export default function App() {
           {tabsVisibles.map((t) => (
             <button
               key={t.id}
-              onClick={() => setTab(t.id)}
+              onClick={() => {
+                setTab(t.id);
+                setRemitoVenta(null);
+              }}
               className={
                 "flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition " +
                 (tab === t.id ? "bg-white text-blue-600" : "text-white/85 hover:bg-white/15")
@@ -1390,6 +1394,88 @@ export default function App() {
       <main className="max-w-4xl mx-auto p-4 md:p-6">
         {loading ? (
           <p className="text-sm text-black/40 pt-10 text-center">Cargando {negocio.nombre}...</p>
+        ) : remitoVenta ? (
+          <div>
+            <div className="flex items-center justify-between mb-4 no-print flex-wrap gap-2">
+              <h1 className="text-xl font-bold">Comprobante</h1>
+              <div className="flex items-center gap-2 flex-wrap">
+                {remitoVenta.cae && (
+                  <>
+                    <button
+                      onClick={() => descargarPdfFactura(remitoVenta)}
+                      disabled={generandoPdf}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-40"
+                    >
+                      <Download size={14} /> {generandoPdf ? "Generando..." : "Descargar factura (PDF)"}
+                    </button>
+                    <button
+                      onClick={() => compartirPdfFacturaWhatsapp(remitoVenta)}
+                      disabled={generandoPdf}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-green-200 bg-green-50 text-xs font-medium text-green-700 hover:bg-green-100 disabled:opacity-40"
+                    >
+                      <MessageCircle size={14} /> {generandoPdf ? "Generando..." : "Compartir factura"}
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={() => descargarRemito(remitoVenta)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-black/15 text-xs font-medium text-black/60 hover:bg-black/5"
+                >
+                  <Download size={14} /> Descargar
+                </button>
+                <button
+                  onClick={() => compartirRemitoWhatsapp(remitoVenta)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-green-200 bg-green-50 text-xs font-medium text-green-700 hover:bg-green-100"
+                >
+                  <MessageCircle size={14} /> WhatsApp
+                </button>
+                <button
+                  onClick={() => window.print()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-black/15 text-xs font-medium text-black/60 hover:bg-black/5"
+                >
+                  <Printer size={14} /> Imprimir
+                </button>
+                <button onClick={() => setRemitoVenta(null)} className="text-sm text-blue-600 font-medium hover:underline">
+                  ← Volver a vender
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-black/5 p-6 max-w-sm mx-auto font-mono text-sm">
+              <p className="text-center font-bold text-base mb-0.5">RASTEX GESTIÓN</p>
+              <p className="text-center text-xs text-black/50 mb-4">{negocio.nombre}</p>
+              <p className="mb-0.5">
+                Fecha: {new Date(remitoVenta.fecha).toLocaleDateString("es-AR")} {new Date(remitoVenta.fecha).toLocaleTimeString("es-AR")}
+              </p>
+              <div className="border-t border-dashed border-black/20 my-2" />
+              <p className="font-semibold mb-1">Productos:</p>
+              {remitoVenta.items.map((i, idx) => (
+                <p key={idx} className="mb-0.5">
+                  {i.cantidad}x {i.nombre} ({money(i.precio)} c/u)
+                </p>
+              ))}
+              <div className="border-t border-dashed border-black/20 my-2" />
+              {remitoVenta.descuentoPct > 0 && <p className="mb-0.5 text-red-600">Descuento: {remitoVenta.descuentoPct}%</p>}
+              {remitoVenta.recargoPct > 0 && <p className="mb-0.5 text-green-700">Recargo: {remitoVenta.recargoPct}%</p>}
+              <p className="font-bold text-base mb-1">TOTAL: {money(remitoVenta.total)}</p>
+              <p className="mb-0.5">Medio de pago: {labelPago(remitoVenta)}</p>
+              <p className={remitoVenta.facturada ? "text-green-700" : "text-black/50"}>
+                Estado: {remitoVenta.facturada ? "Facturada" : "Factura pendiente"}
+              </p>
+              {remitoVenta.cae && (
+                <>
+                  <div className="border-t border-dashed border-black/20 my-2" />
+                  <p className="mb-0.5 text-xs font-bold">
+                    {labelTipoComprobante(remitoVenta.tipoComprobante)} — Pto. Vta: {remitoVenta.puntoVenta} — N° {remitoVenta.numeroComprobante}
+                  </p>
+                  {remitoVenta.cuitCliente && <p className="mb-0.5 text-xs">CUIT cliente: {remitoVenta.cuitCliente}</p>}
+                  <p className="text-xs">
+                    CAE: {remitoVenta.cae} — Vto: {remitoVenta.caeVencimiento}
+                  </p>
+                </>
+              )}
+            </div>
+          </div>
         ) : tab === "venta" ? (
           <div>
             {!caja.abierta ? (
@@ -2271,88 +2357,6 @@ export default function App() {
             </div>
 
             <p className="text-xs text-black/40 mt-3">El stock se descuenta solo cada vez que confirmás una venta en "Vender".</p>
-          </div>
-        ) : remitoVenta ? (
-          <div>
-            <div className="flex items-center justify-between mb-4 no-print flex-wrap gap-2">
-              <h1 className="text-xl font-bold">Remito</h1>
-              <div className="flex items-center gap-2 flex-wrap">
-                {remitoVenta.cae && (
-                  <>
-                    <button
-                      onClick={() => descargarPdfFactura(remitoVenta)}
-                      disabled={generandoPdf}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-40"
-                    >
-                      <Download size={14} /> {generandoPdf ? "Generando..." : "Descargar factura (PDF)"}
-                    </button>
-                    <button
-                      onClick={() => compartirPdfFacturaWhatsapp(remitoVenta)}
-                      disabled={generandoPdf}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-green-200 bg-green-50 text-xs font-medium text-green-700 hover:bg-green-100 disabled:opacity-40"
-                    >
-                      <MessageCircle size={14} /> {generandoPdf ? "Generando..." : "Compartir factura"}
-                    </button>
-                  </>
-                )}
-                <button
-                  onClick={() => descargarRemito(remitoVenta)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-black/15 text-xs font-medium text-black/60 hover:bg-black/5"
-                >
-                  <Download size={14} /> Descargar
-                </button>
-                <button
-                  onClick={() => compartirRemitoWhatsapp(remitoVenta)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-green-200 bg-green-50 text-xs font-medium text-green-700 hover:bg-green-100"
-                >
-                  <MessageCircle size={14} /> WhatsApp
-                </button>
-                <button
-                  onClick={() => window.print()}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-black/15 text-xs font-medium text-black/60 hover:bg-black/5"
-                >
-                  <Printer size={14} /> Imprimir
-                </button>
-                <button onClick={() => setRemitoVenta(null)} className="text-sm text-blue-600 font-medium hover:underline">
-                  ← Volver
-                </button>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-xl shadow-sm border border-black/5 p-6 max-w-sm mx-auto font-mono text-sm">
-              <p className="text-center font-bold text-base mb-0.5">RASTEX GESTIÓN</p>
-              <p className="text-center text-xs text-black/50 mb-4">{negocio.nombre}</p>
-              <p className="mb-0.5">
-                Fecha: {new Date(remitoVenta.fecha).toLocaleDateString("es-AR")} {new Date(remitoVenta.fecha).toLocaleTimeString("es-AR")}
-              </p>
-              <div className="border-t border-dashed border-black/20 my-2" />
-              <p className="font-semibold mb-1">Productos:</p>
-              {remitoVenta.items.map((i, idx) => (
-                <p key={idx} className="mb-0.5">
-                  {i.cantidad}x {i.nombre} ({money(i.precio)} c/u)
-                </p>
-              ))}
-              <div className="border-t border-dashed border-black/20 my-2" />
-              {remitoVenta.descuentoPct > 0 && <p className="mb-0.5 text-red-600">Descuento: {remitoVenta.descuentoPct}%</p>}
-              {remitoVenta.recargoPct > 0 && <p className="mb-0.5 text-green-700">Recargo: {remitoVenta.recargoPct}%</p>}
-              <p className="font-bold text-base mb-1">TOTAL: {money(remitoVenta.total)}</p>
-              <p className="mb-0.5">Medio de pago: {labelPago(remitoVenta)}</p>
-              <p className={remitoVenta.facturada ? "text-green-700" : "text-black/50"}>
-                Estado: {remitoVenta.facturada ? "Facturada" : "Factura pendiente"}
-              </p>
-              {remitoVenta.cae && (
-                <>
-                  <div className="border-t border-dashed border-black/20 my-2" />
-                  <p className="mb-0.5 text-xs font-bold">
-                    {labelTipoComprobante(remitoVenta.tipoComprobante)} — Pto. Vta: {remitoVenta.puntoVenta} — N° {remitoVenta.numeroComprobante}
-                  </p>
-                  {remitoVenta.cuitCliente && <p className="mb-0.5 text-xs">CUIT cliente: {remitoVenta.cuitCliente}</p>}
-                  <p className="text-xs">
-                    CAE: {remitoVenta.cae} — Vto: {remitoVenta.caeVencimiento}
-                  </p>
-                </>
-              )}
-            </div>
           </div>
         ) : tab === "cuentacolegio" ? (
           <div>
