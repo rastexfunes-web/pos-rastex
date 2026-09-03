@@ -213,6 +213,8 @@ export default function App() {
   const [cuitClienteFactura, setCuitClienteFactura] = useState("");
   const [nombreClienteFactura, setNombreClienteFactura] = useState("");
   const [verVentasDia, setVerVentasDia] = useState(false);
+  const [agregandoProductoAbierto, setAgregandoProductoAbierto] = useState(false);
+  const [productoRecienAgregado, setProductoRecienAgregado] = useState(false);
   const [generandoPdf, setGenerandoPdf] = useState(false);
   const [urlPdfFactura, setUrlPdfFactura] = useState(null);
   const [carrito, setCarrito] = useState([]);
@@ -680,6 +682,8 @@ export default function App() {
     persist({ ...negocioData, productos: [...negocioData.productos, producto] });
     setNuevoProducto({ nombre: "", sku: "", precio: "", stock: "", categoria: "uniforme", talle: "" });
     setErrorForm("");
+    setProductoRecienAgregado(true);
+    setTimeout(() => setProductoRecienAgregado(false), 2000);
   }
 
   function iniciarEdicionTalle(productoId, t) {
@@ -2070,12 +2074,23 @@ export default function App() {
           <div>
             <div className="flex items-center justify-between mb-4">
               <h1 className="text-xl font-bold">Stock — {negocio.nombre}</h1>
-              <button
-                onClick={() => window.print()}
-                className="no-print flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-black/15 text-xs font-medium text-black/60 hover:bg-black/5"
-              >
-                <Printer size={14} /> Imprimir
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setErrorForm("");
+                    setAgregandoProductoAbierto(true);
+                  }}
+                  className="no-print flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-bold hover:brightness-110"
+                >
+                  <Plus size={14} /> Agregar producto
+                </button>
+                <button
+                  onClick={() => window.print()}
+                  className="no-print flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-black/15 text-xs font-medium text-black/60 hover:bg-black/5"
+                >
+                  <Printer size={14} /> Imprimir
+                </button>
+              </div>
             </div>
 
             {listaStockBajo.length > 0 && (
@@ -2312,71 +2327,6 @@ export default function App() {
                   )}
                 </tbody>
               </table>
-            </div>
-
-            <div className="no-print bg-white rounded-xl shadow-sm border border-black/5 p-4">
-              <h2 className="font-bold mb-3 text-sm">Cargar producto nuevo</h2>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
-                <input
-                  placeholder="Nombre"
-                  value={nuevoProducto.nombre}
-                  onChange={(e) => setNuevoProducto((f) => ({ ...f, nombre: e.target.value }))}
-                  className="col-span-2 sm:col-span-1 px-3 py-2 rounded-lg border border-black/15 text-sm"
-                />
-                {negocioId === "colegio" && (
-                  <select
-                    value={nuevoProducto.categoria}
-                    onChange={(e) => setNuevoProducto((f) => ({ ...f, categoria: e.target.value }))}
-                    className="px-3 py-2 rounded-lg border border-black/15 text-sm bg-white"
-                  >
-                    {CATEGORIAS.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                <input
-                  placeholder="SKU (opcional)"
-                  value={nuevoProducto.sku}
-                  onChange={(e) => setNuevoProducto((f) => ({ ...f, sku: e.target.value }))}
-                  className="px-3 py-2 rounded-lg border border-black/15 text-sm font-mono"
-                />
-                <input
-                  type="number"
-                  placeholder="Precio"
-                  value={nuevoProducto.precio}
-                  onChange={(e) => setNuevoProducto((f) => ({ ...f, precio: e.target.value }))}
-                  className="px-3 py-2 rounded-lg border border-black/15 text-sm font-mono"
-                />
-                <input
-                  type="number"
-                  placeholder="Stock inicial"
-                  value={nuevoProducto.stock}
-                  onChange={(e) => setNuevoProducto((f) => ({ ...f, stock: e.target.value }))}
-                  className="px-3 py-2 rounded-lg border border-black/15 text-sm font-mono"
-                />
-                {negocioId === "colegio" && nuevoProducto.categoria === "uniforme" && (
-                  <input
-                    placeholder="Talle inicial (ej: 6, 10, M)"
-                    value={nuevoProducto.talle}
-                    onChange={(e) => setNuevoProducto((f) => ({ ...f, talle: e.target.value }))}
-                    className="col-span-2 sm:col-span-1 px-3 py-2 rounded-lg border border-black/15 text-sm"
-                  />
-                )}
-              </div>
-              {negocioId === "colegio" && nuevoProducto.categoria === "uniforme" && (
-                <p className="text-xs text-black/40 mb-2">
-                  El precio y stock de arriba son para este talle inicial. Después podés agregar más talles (cada uno con su propio precio y stock) desde la fila del producto.
-                </p>
-              )}
-              {errorForm && <p className="text-xs text-red-600 mb-2">{errorForm}</p>}
-              <button
-                onClick={agregarProducto}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 text-white font-bold text-sm hover:brightness-110"
-              >
-                <Plus size={15} /> Agregar producto
-              </button>
             </div>
 
             <p className="text-xs text-black/40 mt-3">El stock se descuenta solo cada vez que confirmás una venta en "Vender".</p>
@@ -3085,6 +3035,99 @@ export default function App() {
             <p className="text-[11px] text-black/35 mt-2 text-center">
               El stock se ajusta automáticamente según los productos que agregues o quites (si dejás tildada la casilla de arriba).
             </p>
+          </div>
+        </div>
+      )}
+
+      {agregandoProductoAbierto && (
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 no-print"
+          onClick={() => setAgregandoProductoAbierto(false)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl w-full max-w-md p-5 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-bold text-lg">Agregar producto — {negocio.nombre}</h2>
+              <button onClick={() => setAgregandoProductoAbierto(false)} className="w-8 h-8 rounded hover:bg-black/5 flex items-center justify-center">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-2 mb-3">
+              <input
+                placeholder="Nombre"
+                value={nuevoProducto.nombre}
+                onChange={(e) => setNuevoProducto((f) => ({ ...f, nombre: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg border border-black/15 text-sm"
+                autoFocus
+              />
+              {negocioId === "colegio" && (
+                <select
+                  value={nuevoProducto.categoria}
+                  onChange={(e) => setNuevoProducto((f) => ({ ...f, categoria: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-black/15 text-sm bg-white"
+                >
+                  {CATEGORIAS.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <input
+                placeholder="SKU (opcional)"
+                value={nuevoProducto.sku}
+                onChange={(e) => setNuevoProducto((f) => ({ ...f, sku: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg border border-black/15 text-sm font-mono"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  type="number"
+                  placeholder="Precio"
+                  value={nuevoProducto.precio}
+                  onChange={(e) => setNuevoProducto((f) => ({ ...f, precio: e.target.value }))}
+                  className="px-3 py-2 rounded-lg border border-black/15 text-sm font-mono"
+                />
+                <input
+                  type="number"
+                  placeholder="Stock inicial"
+                  value={nuevoProducto.stock}
+                  onChange={(e) => setNuevoProducto((f) => ({ ...f, stock: e.target.value }))}
+                  className="px-3 py-2 rounded-lg border border-black/15 text-sm font-mono"
+                />
+              </div>
+              {negocioId === "colegio" && nuevoProducto.categoria === "uniforme" && (
+                <input
+                  placeholder="Talle inicial (ej: 6, 10, M)"
+                  value={nuevoProducto.talle}
+                  onChange={(e) => setNuevoProducto((f) => ({ ...f, talle: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-black/15 text-sm"
+                />
+              )}
+            </div>
+            {negocioId === "colegio" && nuevoProducto.categoria === "uniforme" && (
+              <p className="text-xs text-black/40 mb-2">
+                El precio y stock de arriba son para este talle inicial. Después podés agregar más talles desde la fila del producto en la tabla.
+              </p>
+            )}
+            {errorForm && <p className="text-xs text-red-600 mb-2">{errorForm}</p>}
+            {productoRecienAgregado && <p className="text-xs text-green-700 mb-2">✓ Producto agregado. Podés seguir cargando el siguiente.</p>}
+            <div className="flex gap-2">
+              <button
+                onClick={agregarProducto}
+                className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg bg-blue-600 text-white font-bold text-sm hover:brightness-110"
+              >
+                <Plus size={15} /> Agregar y seguir cargando
+              </button>
+              <button
+                onClick={() => setAgregandoProductoAbierto(false)}
+                className="px-4 py-2.5 rounded-lg border border-black/10 text-sm text-black/60 hover:bg-black/5"
+              >
+                Listo
+              </button>
+            </div>
           </div>
         </div>
       )}
