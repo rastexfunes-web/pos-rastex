@@ -236,6 +236,7 @@ export default function App() {
   const [fechaFiltro, setFechaFiltro] = useState(todayKey());
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
+  const [filtroFactura, setFiltroFactura] = useState("todas");
   const [vistaColegio, setVistaColegio] = useState("historico");
   const [fechaFiltroColegio, setFechaFiltroColegio] = useState(todayKey());
   const [fechaDesdeColegio, setFechaDesdeColegio] = useState("");
@@ -1206,8 +1207,11 @@ export default function App() {
 
   const ventasVista = useMemo(() => {
     const ventasSinColegio = negocioData.ventas.filter((v) => v.tipoPago !== "colegio");
-    return filtrarPorPeriodo(ventasSinColegio, vistaTotales, fechaFiltro, fechaDesde, fechaHasta);
-  }, [negocioData.ventas, vistaTotales, fechaFiltro, fechaDesde, fechaHasta]);
+    const porPeriodo = filtrarPorPeriodo(ventasSinColegio, vistaTotales, fechaFiltro, fechaDesde, fechaHasta);
+    if (filtroFactura === "facturadas") return porPeriodo.filter((v) => v.facturada);
+    if (filtroFactura === "pendientes") return porPeriodo.filter((v) => !v.facturada);
+    return porPeriodo;
+  }, [negocioData.ventas, vistaTotales, fechaFiltro, fechaDesde, fechaHasta, filtroFactura]);
 
   const resumenVista = useMemo(() => calcularResumenPago(ventasVista), [ventasVista]);
 
@@ -2728,7 +2732,27 @@ export default function App() {
               </>
             )}
 
-            <h2 className="font-bold mb-2 text-sm">Detalle de ventas</h2>
+            <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+              <h2 className="font-bold text-sm">Detalle de ventas</h2>
+              <div className="flex rounded-lg bg-black/5 p-0.5 text-xs">
+                {[
+                  { id: "todas", label: "Todas" },
+                  { id: "facturadas", label: "Facturadas" },
+                  { id: "pendientes", label: "Pendientes" },
+                ].map((f) => (
+                  <button
+                    key={f.id}
+                    onClick={() => setFiltroFactura(f.id)}
+                    className={
+                      "px-3 py-1.5 rounded-md font-medium transition whitespace-nowrap " +
+                      (filtroFactura === f.id ? "bg-white shadow-sm text-blue-600" : "text-black/50")
+                    }
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="bg-white rounded-xl shadow-sm border border-black/5 divide-y divide-black/5">
               {ventasVista.length === 0 ? (
                 <p className="p-4 text-sm text-black/40">
