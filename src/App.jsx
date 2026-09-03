@@ -215,6 +215,7 @@ export default function App() {
   const [verVentasDia, setVerVentasDia] = useState(false);
   const [agregandoProductoAbierto, setAgregandoProductoAbierto] = useState(false);
   const [productoRecienAgregado, setProductoRecienAgregado] = useState(false);
+  const [productoExpandidoId, setProductoExpandidoId] = useState(null);
   const [generandoPdf, setGenerandoPdf] = useState(false);
   const [urlPdfFactura, setUrlPdfFactura] = useState(null);
   const [carrito, setCarrito] = useState([]);
@@ -2105,134 +2106,131 @@ export default function App() {
               </button>
             )}
 
-            <div className="bg-white rounded-xl shadow-sm border border-black/5 overflow-hidden mb-6">
-              <table className="w-full text-sm">
-                <thead className="bg-black/5 text-left text-xs uppercase tracking-wide text-black/40">
-                  <tr>
-                    <th className="px-4 py-2.5">Producto</th>
-                    {negocioId === "colegio" && <th className="px-4 py-2.5">Categoría</th>}
-                    <th className="px-4 py-2.5">SKU</th>
-                    <th className="px-4 py-2.5 text-right">Precio</th>
-                    <th className="px-4 py-2.5 text-right">Stock</th>
-                    <th className="px-4 py-2.5 text-right no-print">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {negocioData.productos.map((p) =>
-                    editandoId === p.id ? (
-                      <tr key={p.id} className="border-t border-black/5 bg-blue-50">
-                        <td className="px-2 py-2">
-                          <input
-                            value={formEdicion.nombre}
-                            onChange={(e) => setFormEdicion((f) => ({ ...f, nombre: e.target.value }))}
-                            className="w-full px-2 py-1 rounded border border-black/15 text-sm"
-                          />
-                        </td>
-                        {negocioId === "colegio" && (
-                          <td className="px-2 py-2">
-                            <select
-                              value={formEdicion.categoria}
-                              onChange={(e) => setFormEdicion((f) => ({ ...f, categoria: e.target.value }))}
-                              className="w-full px-2 py-1 rounded border border-black/15 text-sm bg-white"
-                            >
-                              {CATEGORIAS.map((c) => (
-                                <option key={c.id} value={c.id}>
-                                  {c.label}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
-                        )}
-                        <td className="px-2 py-2">
-                          <input
-                            value={formEdicion.sku}
-                            onChange={(e) => setFormEdicion((f) => ({ ...f, sku: e.target.value }))}
-                            className="w-full px-2 py-1 rounded border border-black/15 text-sm font-mono"
-                          />
-                        </td>
-                        <td className="px-2 py-2">
-                          {tieneTalles(p) ? (
-                            <span className="text-xs text-black/30">Ver talles abajo</span>
-                          ) : (
-                            <input
-                              type="number"
-                              value={formEdicion.precio}
-                              onChange={(e) => setFormEdicion((f) => ({ ...f, precio: e.target.value }))}
-                              className="w-24 px-2 py-1 rounded border border-black/15 text-sm text-right font-mono ml-auto block"
-                            />
-                          )}
-                        </td>
-                        <td className="px-2 py-2">
-                          {!tieneTalles(p) && (
-                            <input
-                              type="number"
-                              value={formEdicion.stock}
-                              onChange={(e) => setFormEdicion((f) => ({ ...f, stock: e.target.value }))}
-                              className="w-20 px-2 py-1 rounded border border-black/15 text-sm text-right font-mono ml-auto block"
-                            />
-                          )}
-                        </td>
-                        <td className="px-2 py-2 no-print">
-                          <div className="flex justify-end gap-1">
-                            <button onClick={() => guardarEdicion(p.id)} className="w-7 h-7 rounded bg-green-700 text-white flex items-center justify-center">
-                              <Check size={14} />
-                            </button>
-                            <button onClick={() => { setEditandoId(null); setErrorForm(""); }} className="w-7 h-7 rounded bg-black/10 flex items-center justify-center">
-                              <X size={14} />
-                            </button>
+            <div className="space-y-2 mb-6">
+              {negocioData.productos.map((p) => {
+                const cat = CATEGORIAS.find((c) => c.id === p.categoria);
+                const expandido = productoExpandidoId === p.id;
+                return (
+                  <div key={p.id} className="bg-white rounded-xl shadow-sm border border-black/5 overflow-hidden">
+                    <button
+                      onClick={() => setProductoExpandidoId(expandido ? null : p.id)}
+                      className="w-full flex items-center justify-between gap-2 px-4 py-3 text-left hover:bg-black/[0.02] transition"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <ChevronDown size={16} className={"text-black/30 shrink-0 transition-transform " + (expandido ? "rotate-180" : "")} />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-semibold text-sm">{p.nombre}</span>
+                            {cat && (
+                              <span
+                                className="inline-block text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded text-white"
+                                style={{ backgroundColor: cat.color }}
+                              >
+                                {cat.label}
+                              </span>
+                            )}
                           </div>
-                        </td>
-                      </tr>
-                    ) : (
-                      <tr key={p.id} className="border-t border-black/5">
-                        <td className="px-4 py-2.5 font-medium">{p.nombre}</td>
-                        {negocioId === "colegio" && (
-                          <td className="px-4 py-2.5">
-                            {(() => {
-                              const cat = CATEGORIAS.find((c) => c.id === p.categoria);
-                              return cat ? (
-                                <span
-                                  className="inline-block text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded text-white"
-                                  style={{ backgroundColor: cat.color }}
+                          <p className="text-xs text-black/40 font-mono">{p.sku}{tieneTalles(p) ? " · " + p.talles.length + " talle" + (p.talles.length === 1 ? "" : "s") : ""}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        {!tieneTalles(p) && <span className="font-mono text-sm">{money(p.precio)}</span>}
+                        <span className={"font-mono text-sm font-semibold " + (stockTotal(p) < UMBRAL_STOCK_BAJO ? "text-red-600" : "")}>
+                          x{stockTotal(p)}
+                        </span>
+                      </div>
+                    </button>
+
+                    {expandido && (
+                      <div className="border-t border-black/5 px-4 py-3 bg-black/[0.01]">
+                        {editandoId === p.id ? (
+                          <div className="space-y-2 mb-2">
+                            <input
+                              value={formEdicion.nombre}
+                              onChange={(e) => setFormEdicion((f) => ({ ...f, nombre: e.target.value }))}
+                              placeholder="Nombre"
+                              className="w-full px-2 py-1.5 rounded border border-black/15 text-sm"
+                            />
+                            <div className="flex gap-2">
+                              <input
+                                value={formEdicion.sku}
+                                onChange={(e) => setFormEdicion((f) => ({ ...f, sku: e.target.value }))}
+                                placeholder="SKU"
+                                className="flex-1 px-2 py-1.5 rounded border border-black/15 text-sm font-mono"
+                              />
+                              {negocioId === "colegio" && (
+                                <select
+                                  value={formEdicion.categoria}
+                                  onChange={(e) => setFormEdicion((f) => ({ ...f, categoria: e.target.value }))}
+                                  className="px-2 py-1.5 rounded border border-black/15 text-sm bg-white"
                                 >
-                                  {cat.label}
-                                </span>
-                              ) : (
-                                <span className="text-black/30 text-xs">—</span>
-                              );
-                            })()}
-                          </td>
-                        )}
-                        <td className="px-4 py-2.5 font-mono text-black/50">{p.sku}</td>
-                        <td className="px-4 py-2.5 text-right font-mono">
-                          {tieneTalles(p) ? <span className="text-black/30 text-xs">Ver abajo</span> : money(p.precio)}
-                        </td>
-                        <td className={"px-4 py-2.5 text-right font-mono font-semibold " + (stockTotal(p) < UMBRAL_STOCK_BAJO ? "text-red-600" : "")}>
-                          {stockTotal(p)}
-                        </td>
-                        <td className="px-4 py-2.5 no-print">
-                          <div className="flex justify-end gap-1">
-                            <button onClick={() => iniciarEdicion(p)} className="w-7 h-7 rounded hover:bg-black/5 flex items-center justify-center text-black/50">
-                              <Pencil size={14} />
-                            </button>
-                            <button onClick={() => borrarProducto(p.id)} className="w-7 h-7 rounded hover:bg-red-50 text-red-600 flex items-center justify-center">
-                              <Trash2 size={14} />
-                            </button>
+                                  {CATEGORIAS.map((c) => (
+                                    <option key={c.id} value={c.id}>
+                                      {c.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
+                            </div>
+                            {!tieneTalles(p) && (
+                              <div className="flex gap-2">
+                                <input
+                                  type="number"
+                                  value={formEdicion.precio}
+                                  onChange={(e) => setFormEdicion((f) => ({ ...f, precio: e.target.value }))}
+                                  placeholder="Precio"
+                                  className="flex-1 px-2 py-1.5 rounded border border-black/15 text-sm font-mono"
+                                />
+                                <input
+                                  type="number"
+                                  value={formEdicion.stock}
+                                  onChange={(e) => setFormEdicion((f) => ({ ...f, stock: e.target.value }))}
+                                  placeholder="Stock"
+                                  className="flex-1 px-2 py-1.5 rounded border border-black/15 text-sm font-mono"
+                                />
+                              </div>
+                            )}
+                            {errorForm && <p className="text-xs text-red-600">{errorForm}</p>}
+                            <div className="flex gap-2">
+                              <button onClick={() => guardarEdicion(p.id)} className="flex-1 py-1.5 rounded bg-green-700 text-white text-xs font-bold flex items-center justify-center gap-1">
+                                <Check size={13} /> Guardar
+                              </button>
+                              <button
+                                onClick={() => { setEditandoId(null); setErrorForm(""); }}
+                                className="px-3 py-1.5 rounded border border-black/10 text-xs text-black/60"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
                           </div>
-                        </td>
-                      </tr>
-                    )
-                  )}
-                  {negocioData.productos.map(
-                    (p) =>
-                      tieneTalles(p) && (
-                        <tr key={p.id + "-talles"} className="border-t border-black/5 bg-black/[0.02]">
-                          <td colSpan={negocioId === "colegio" ? 6 : 5} className="px-4 py-3">
-                            <p className="text-xs font-semibold text-black/40 mb-2">Talles — {p.nombre}</p>
+                        ) : (
+                          <div className="flex items-center justify-between mb-3">
+                            {!tieneTalles(p) && (
+                              <div className="text-sm">
+                                <span className="text-black/40">Precio: </span>
+                                <span className="font-mono font-semibold">{money(p.precio)}</span>
+                                <span className="text-black/40 ml-3">Stock: </span>
+                                <span className={"font-mono font-semibold " + (p.stock < UMBRAL_STOCK_BAJO ? "text-red-600" : "")}>{p.stock}</span>
+                              </div>
+                            )}
+                            <div className="flex gap-1 ml-auto">
+                              <button onClick={() => iniciarEdicion(p)} className="w-8 h-8 rounded hover:bg-black/5 flex items-center justify-center text-black/50">
+                                <Pencil size={15} />
+                              </button>
+                              <button onClick={() => borrarProducto(p.id)} className="w-8 h-8 rounded hover:bg-red-50 text-red-600 flex items-center justify-center">
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {tieneTalles(p) && (
+                          <div>
+                            <p className="text-xs font-semibold text-black/40 mb-2">Talles</p>
                             <div className="space-y-1.5">
                               {p.talles.map((t) =>
                                 editandoTalle === p.id + "|" + t.talle ? (
-                                  <div key={t.talle} className="flex items-center gap-2 bg-blue-50 rounded-lg p-2">
+                                  <div key={t.talle} className="flex items-center gap-2 bg-blue-50 rounded-lg p-2 flex-wrap">
                                     <span className="text-xs font-semibold w-16 shrink-0">Talle {t.talle}</span>
                                     <input
                                       type="number"
@@ -2314,20 +2312,18 @@ export default function App() {
                                 <p className="text-xs text-red-600">{errorTalle}</p>
                               )}
                             </div>
-                          </td>
-                        </tr>
-                      )
-                  )}
-                  {negocioData.productos.length === 0 && (
-                    <tr>
-                      <td colSpan={negocioId === "colegio" ? 6 : 5} className="px-4 py-6 text-center text-sm text-black/40">
-                        Todavía no cargaste productos para este negocio.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {negocioData.productos.length === 0 && (
+                <p className="text-sm text-black/40 text-center py-6">Todavía no cargaste productos para este negocio.</p>
+              )}
             </div>
+
 
             <p className="text-xs text-black/40 mt-3">El stock se descuenta solo cada vez que confirmás una venta en "Vender".</p>
           </div>
