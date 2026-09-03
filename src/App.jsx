@@ -212,6 +212,7 @@ export default function App() {
   const [tipoClienteFactura, setTipoClienteFactura] = useState("consumidor_final");
   const [cuitClienteFactura, setCuitClienteFactura] = useState("");
   const [nombreClienteFactura, setNombreClienteFactura] = useState("");
+  const [verVentasDia, setVerVentasDia] = useState(false);
   const [generandoPdf, setGenerandoPdf] = useState(false);
   const [urlPdfFactura, setUrlPdfFactura] = useState(null);
   const [carrito, setCarrito] = useState([]);
@@ -1643,7 +1644,15 @@ export default function App() {
             {caja.abierta && !mostrarCierre && (
           <div className="grid md:grid-cols-5 gap-6">
             <div className="md:col-span-3">
-              <h1 className="text-xl font-bold mb-4">Productos — {negocio.nombre}</h1>
+              <div className="flex items-center justify-between mb-4">
+                <h1 className="text-xl font-bold">Productos — {negocio.nombre}</h1>
+                <button
+                  onClick={() => setVerVentasDia(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                >
+                  <Receipt size={14} /> Ventas del día
+                </button>
+              </div>
 
               <input
                 type="text"
@@ -3076,6 +3085,66 @@ export default function App() {
             <p className="text-[11px] text-black/35 mt-2 text-center">
               El stock se ajusta automáticamente según los productos que agregues o quites (si dejás tildada la casilla de arriba).
             </p>
+          </div>
+        </div>
+      )}
+
+      {verVentasDia && (
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 no-print"
+          onClick={() => setVerVentasDia(false)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl w-full max-w-lg p-5 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-bold text-lg">Ventas de hoy — {negocio.nombre}</h2>
+              <button onClick={() => setVerVentasDia(false)} className="w-8 h-8 rounded hover:bg-black/5 flex items-center justify-center">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
+              <div className="bg-blue-50 rounded-lg p-3">
+                <p className="text-xs text-black/40 mb-1">Ventas</p>
+                <p className="font-mono font-bold text-lg">{resumenHoy.cantidad}</p>
+              </div>
+              {PAGOS.map((p) => (
+                <div key={p.id} className="bg-blue-50 rounded-lg p-3">
+                  <p className="text-xs text-black/40 mb-1">{p.label}</p>
+                  <p className="font-mono font-bold">{money(resumenHoy[p.id] || 0)}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="bg-slate-800 text-white rounded-lg p-3 flex items-center justify-between mb-4">
+              <span className="font-medium text-sm">Total del día</span>
+              <span className="font-mono font-bold text-lg">{money(resumenHoy.total)}</span>
+            </div>
+
+            <h3 className="font-semibold text-sm mb-2">Detalle</h3>
+            <div className="bg-white rounded-xl shadow-sm border border-black/5 divide-y divide-black/5">
+              {ventasHoy.length === 0 ? (
+                <p className="p-4 text-sm text-black/40">Todavía no hay ventas hoy.</p>
+              ) : (
+                ventasHoy.map((v) => (
+                  <div key={v.id} className="p-3 flex items-center justify-between text-sm">
+                    <div>
+                      <p className="font-medium">{v.items.map((i) => i.cantidad + "x " + i.nombre).join(", ")}</p>
+                      <p className="text-xs text-black/40">
+                        {new Date(v.fecha).toLocaleTimeString("es-AR")} · {labelPago(v)}
+                        {" · "}
+                        <span className={v.facturada ? "text-green-700" : "text-black/40"}>
+                          {v.facturada ? "Facturada" : "Factura pendiente"}
+                        </span>
+                      </p>
+                    </div>
+                    <span className="font-mono font-semibold shrink-0">{money(v.total)}</span>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       )}
