@@ -139,7 +139,7 @@ exports.facturarVenta = functions
 exports.generarFacturaPDF = functions
   .runWith({ secrets: ["ARCA_ACCESS_TOKEN"] })
   .https.onCall(async (data, context) => {
-    const { items, total, tipoComprobante, puntoVenta, numeroComprobante, cae, caeVencimiento, tipoCliente, cuitCliente } = data;
+    const { items, total, tipoComprobante, puntoVenta, numeroComprobante, cae, caeVencimiento, tipoCliente, cuitCliente, nombreCliente } = data;
     let { impNeto, impIVA } = data;
 
     // Malla de seguridad: si por algún motivo no vinieron calculados
@@ -189,7 +189,7 @@ exports.generarFacturaPDF = functions
             issuer_iva_condition: DATOS_EMISOR.iva_condition,
             issuer_gross_income: DATOS_EMISOR.gross_income,
             issuer_activity_start_date: DATOS_EMISOR.activity_start_date,
-            receiver_name: esRI ? "CUIT " + cuitCliente : "Consumidor Final",
+            receiver_name: esRI ? "CUIT " + cuitCliente : (nombreCliente && nombreCliente.trim() ? nombreCliente.trim() : "Consumidor Final"),
             receiver_address: "-",
             receiver_document_type: esRI ? 80 : 99,
             receiver_document_number: esRI ? cuitCliente : 0,
