@@ -211,6 +211,7 @@ export default function App() {
   const [facturando, setFacturando] = useState(false);
   const [tipoClienteFactura, setTipoClienteFactura] = useState("consumidor_final");
   const [cuitClienteFactura, setCuitClienteFactura] = useState("");
+  const [nombreClienteFactura, setNombreClienteFactura] = useState("");
   const [generandoPdf, setGenerandoPdf] = useState(false);
   const [urlPdfFactura, setUrlPdfFactura] = useState(null);
   const [carrito, setCarrito] = useState([]);
@@ -512,6 +513,7 @@ export default function App() {
       impNeto: datosFactura ? datosFactura.impNeto : null,
       impIVA: datosFactura ? datosFactura.impIVA : null,
       cuitCliente: facturar && tipoClienteFactura === "responsable_inscripto" ? cuitClienteFactura.replace(/\D/g, "") : null,
+      nombreCliente: facturar && tipoClienteFactura === "consumidor_final" && nombreClienteFactura.trim() ? nombreClienteFactura.trim() : null,
     };
     persist({ ...negocioData, productos: nuevosProductos, ventas: [venta, ...negocioData.ventas] });
     setCarrito([]);
@@ -521,6 +523,7 @@ export default function App() {
     setMontosPago({ efectivo: "", transferencia: "", credito: "", debito: "", mercadopago: "" });
     setTipoClienteFactura("consumidor_final");
     setCuitClienteFactura("");
+    setNombreClienteFactura("");
     setRemitoVenta(venta);
   }
 
@@ -1143,6 +1146,7 @@ export default function App() {
         caeVencimiento: v.caeVencimiento,
         tipoCliente: v.cuitCliente ? "responsable_inscripto" : "consumidor_final",
         cuitCliente: v.cuitCliente || null,
+        nombreCliente: v.nombreCliente || null,
       });
       setUrlPdfFactura(res.data.url);
       return res.data.url;
@@ -1469,6 +1473,7 @@ export default function App() {
                     {labelTipoComprobante(remitoVenta.tipoComprobante)} — Pto. Vta: {remitoVenta.puntoVenta} — N° {remitoVenta.numeroComprobante}
                   </p>
                   {remitoVenta.cuitCliente && <p className="mb-0.5 text-xs">CUIT cliente: {remitoVenta.cuitCliente}</p>}
+                  {remitoVenta.nombreCliente && <p className="mb-0.5 text-xs">Cliente: {remitoVenta.nombreCliente}</p>}
                   <p className="text-xs">
                     CAE: {remitoVenta.cae} — Vto: {remitoVenta.caeVencimiento}
                   </p>
@@ -1935,6 +1940,15 @@ export default function App() {
                     value={cuitClienteFactura}
                     onChange={(e) => setCuitClienteFactura(e.target.value)}
                     className="w-full px-3 py-1.5 rounded-lg border border-black/15 text-sm font-mono"
+                  />
+                )}
+                {tipoClienteFactura === "consumidor_final" && (
+                  <input
+                    type="text"
+                    placeholder="Nombre y apellido del cliente (opcional)"
+                    value={nombreClienteFactura}
+                    onChange={(e) => setNombreClienteFactura(e.target.value)}
+                    className="w-full px-3 py-1.5 rounded-lg border border-black/15 text-sm"
                   />
                 )}
               </div>
