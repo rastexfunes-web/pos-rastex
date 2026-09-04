@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Libro IVA — Rastex</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
+
+  :root{
+    --paper:#F6F4EF;
+    --ink:#1E2B24;
+    --ink-soft:#5B665F;
+    --line:#D8D2C4;
+    --compra:#B2542F;
+    --compra-bg:#FBEFE7;
+    --venta:#2E6E56;
+    --venta-bg:#E9F2ED;
+    --saldo-pos:#2E6E56;
+    --saldo-neg:#B2542F;
+    --card:#FFFFFF;
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    padding:28px 18px 60px;
+  }
+
+  .wrap{max-width:760px;margin:0 auto;}
+
+  header{margin-bottom:24px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;}
+  h1{
+    font-family:'Source Serif 4',serif;
+    font-weight:700;
+    font-size:2rem;
+    margin:0 0 4px;
+    letter-spacing:-0.01em;
+  }
+  .subtitle{color:var(--ink-soft);font-size:0.95rem;margin:0;}
+  .btn-logout{
+    background:none;border:1px solid var(--line);border-radius:4px;
+    padding:7px 12px;font-size:0.8rem;color:var(--ink-soft);cursor:pointer;
+    white-space:nowrap;
+  }
+
+  .login-box{
+    max-width:340px;margin:60px auto;background:var(--card);
+    border:1px solid var(--line);border-radius:6px;padding:28px;text-align:center;
+  }
+  .login-box h1{font-size:1.5rem;margin-bottom:6px;}
+  .login-box p{color:var(--ink-soft);font-size:0.88rem;margin-bottom:20px;}
+  .pin-input{
+    width:100%;text-align:center;font-size:1.6rem;letter-spacing:0.4em;
+    font-family:'IBM Plex Mono',monospace;padding:12px;border:1px solid var(--line);
+    border-radius:4px;background:var(--paper);color:var(--ink);margin-bottom:14px;
+  }
+  .btn-primary{
+    width:100%;padding:11px;border:none;border-radius:4px;background:var(--ink);
+    color:var(--paper);font-weight:600;font-size:0.92rem;cursor:pointer;
+  }
+  .login-error{color:var(--compra);font-size:0.82rem;margin-top:10px;min-height:1em;}
+
+  .totales{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:18px;}
+  .tot-card{background:var(--card);border:1px solid var(--line);border-radius:4px;padding:14px 12px;}
+  .tot-card .label{font-size:0.78rem;color:var(--ink-soft);margin-bottom:6px;}
+  .tot-card .valor{font-family:'IBM Plex Mono',monospace;font-size:1.15rem;font-weight:600;}
+  .tot-card.compra .valor{color:var(--compra);}
+  .tot-card.venta .valor{color:var(--venta);}
+  .tot-card.saldo{border-color:var(--ink);}
+
+  .periodo{display:flex;gap:8px;margin-bottom:22px;}
+  .periodo-btn{
+    padding:6px 12px;border-radius:20px;border:1px solid var(--line);background:var(--card);
+    font-size:0.82rem;color:var(--ink-soft);cursor:pointer;
+  }
+  .periodo-btn.active{background:var(--ink);color:var(--paper);border-color:var(--ink);}
+
+  .seccion{margin-bottom:26px;}
+  .seccion-titulo{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+  .seccion-titulo h2{font-family:'Source Serif 4',serif;font-size:1.15rem;margin:0;}
+  .btn-refresh{
+    background:none;border:1px solid var(--line);border-radius:4px;padding:5px 10px;
+    font-size:0.78rem;color:var(--ink-soft);cursor:pointer;
+  }
+
+  form{background:var(--card);border:1px solid var(--line);border-radius:4px;padding:16px;margin-bottom:12px;}
+  .campos{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;}
+  .campo-full{grid-column:1/-1;}
+  label{display:block;font-size:0.78rem;color:var(--ink-soft);margin-bottom:4px;}
+  input{
+    width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:4px;
+    font-family:'Inter',sans-serif;font-size:0.92rem;background:var(--paper);color:var(--ink);
+  }
+  input:focus{outline:2px solid var(--ink);outline-offset:-1px;}
+  input[type=number]{font-family:'IBM Plex Mono',monospace;}
+  .btn-agregar{
+    width:100%;padding:10px;border:none;border-radius:4px;background:var(--compra);
+    color:#fff;font-weight:600;font-size:0.88rem;cursor:pointer;
+  }
+
+  .lista{display:flex;flex-direction:column;gap:8px;}
+  .item{
+    background:var(--card);border:1px solid var(--line);border-left:3px solid var(--line);
+    border-radius:4px;padding:11px 14px;display:flex;justify-content:space-between;
+    align-items:center;gap:10px;
+  }
+  .item.compra{border-left-color:var(--compra);}
+  .item.venta{border-left-color:var(--venta);}
+  .item-info{min-width:0;}
+  .item-comp{font-weight:600;font-size:0.9rem;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .item-meta{font-size:0.76rem;color:var(--ink-soft);}
+  .item-montos{text-align:right;flex-shrink:0;}
+  .item-iva{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:0.92rem;}
+  .item.compra .item-iva{color:var(--compra);}
+  .item.venta .item-iva{color:var(--venta);}
+  .item-neto{font-size:0.74rem;color:var(--ink-soft);font-family:'IBM Plex Mono',monospace;}
+  .item-del{background:none;border:none;color:var(--ink-soft);cursor:pointer;font-size:1.05rem;padding:2px 6px;flex-shrink:0;}
+
+  .vacio{text-align:center;color:var(--ink-soft);padding:26px 20px;font-size:0.86rem;}
+  .estado{font-size:0.78rem;color:var(--ink-soft);text-align:center;margin-top:8px;}
+  .negocio-tag{
+    display:inline-block;font-size:0.68rem;padding:1px 7px;border-radius:10px;
+    background:var(--venta-bg);color:var(--venta);margin-left:6px;vertical-align:middle;
+  }
+  .pendiente-tag{
+    display:inline-block;font-size:0.68rem;padding:1px 7px;border-radius:10px;
+    background:#F3E7CE;color:#8A6A1F;margin-left:6px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBcaNMKlCo83RgTy7xrMZe5bvZADFEdODk",
+  authDomain: "pos-rastex.firebaseapp.com",
+  projectId: "pos-rastex",
+  storageBucket: "pos-rastex.firebasestorage.app",
+  messagingSenderId: "368684352410",
+  appId: "1:368684352410:web:38c3aaef196f3fffad7023",
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+// Mismo mapeo PIN -> usuario que usa pos-rastex.
+const CREDENCIALES_POR_PIN = {
+  "0000": { email: "marcelo@rastexpos.local", password: "Rastex-Marcelo-26!" },
+  "1234": { email: "luciana@rastexpos.local", password: "Rastex-Luciana-26!" },
+};
+
+const NEGOCIOS = [
+  { id: "colegio", nombre: "Colegio" },
+  { id: "egresados", nombre: "JBC Egresados" },
+  { id: "clubes", nombre: "Clubes" },
+  { id: "dtf", nombre: "DTF" },
+  { id: "complejo", nombre: "Complejo" },
+];
+
+const STORAGE_KEY = 'libro-iva-compras';
+const $ = document.getElementById('app');
+const fmt = n => '$' + Number(n||0).toLocaleString('es-AR', {minimumFractionDigits:2, maximumFractionDigits:2});
+
+let compras = [];
+let ventasCache = [];
+let periodo = 'mes';
+let cargandoVentas = false;
+let ventasError = '';
+let ultimaActualizacion = null;
+
+function enPeriodo(fechaISO){
+  if(periodo === 'todo') return true;
+  const f = new Date(fechaISO);
+  const hoy = new Date();
+  if(periodo === 'mes') return f.getFullYear()===hoy.getFullYear() && f.getMonth()===hoy.getMonth();
+  if(periodo === 'anterior'){
+    const anteriorMes = new Date(hoy.getFullYear(), hoy.getMonth()-1, 1);
+    return f.getFullYear()===anteriorMes.getFullYear() && f.getMonth()===anteriorMes.getMonth();
+  }
+  return true;
+}
+
+function renderLogin(error){
+  $.innerHTML = `
+    <div class="login-box">
+      <h1>Libro IVA</h1>
+      <p>Ingresá tu PIN de Rastex Gestión</p>
+      <input type="password" inputmode="numeric" maxlength="4" class="pin-input" id="pinInput" placeholder="••••">
+      <button class="btn-primary" id="btnLogin">Ingresar</button>
+      <div class="login-error">${error||''}</div>
+    </div>
+  `;
+  const pinInput = document.getElementById('pinInput');
+  pinInput.focus();
+  const submit = async ()=>{
+    const pin = pinInput.value.trim();
+    const cred = CREDENCIALES_POR_PIN[pin];
+    if(!cred){ renderLogin('PIN incorrecto.'); return; }
+    document.getElementById('btnLogin').textContent = 'Ingresando...';
+    try{
+      await signInWithEmailAndPassword(auth, cred.email, cred.password);
+    }catch(e){
+      renderLogin('No se pudo iniciar sesión. Probá de nuevo.');
+    }
+  };
+  document.getElementById('btnLogin').addEventListener('click', submit);
+  pinInput.addEventListener('keydown', e=>{ if(e.key==='Enter') submit(); });
+}
+
+async function cargarCompras(){
+  try{
+    const ref = doc(db, 'posData', 'iva-compras');
+    const snap = await getDoc(ref);
+    if(!snap.exists()){ compras = []; return; }
+    const raw = snap.data().value;
+    compras = typeof raw === 'string' ? JSON.parse(raw) : (Array.isArray(raw) ? raw : []);
+  }catch(e){ compras = []; }
+}
+async function guardarCompras(){
+  try{
+    const ref = doc(db, 'posData', 'iva-compras');
+    await setDoc(ref, { value: JSON.stringify(compras), actualizado: new Date().toISOString() });
+  }catch(e){ /* noop */ }
+}
+
+async function cargarVentas(){
+  cargandoVentas = true;
+  ventasError = '';
+  render();
+  try{
+    const resultados = await Promise.all(NEGOCIOS.map(async neg=>{
+      const ref = doc(db, 'posData', 'negocio:' + neg.id);
+      const snap = await getDoc(ref);
+      if(!snap.exists()) return [];
+      const raw = snap.data().value;
+      let data = {};
+      try{ data = typeof raw === 'string' ? JSON.parse(raw) : (raw || {}); }
+      catch(e){ data = {}; }
+      const ventas = Array.isArray(data.ventas) ? data.ventas : [];
+      return ventas.map(v => ({
+        negocio: neg.nombre,
+        fecha: v.fecha,
+        total: v.total,
+        neto: v.impNeto,
+        iva: v.impIVA,
+        cae: v.cae,
+        numeroComprobante: v.numeroComprobante,
+        facturada: !!v.facturada && v.impIVA != null,
+      }));
+    }));
+    ventasCache = resultados.flat().sort((a,b)=> new Date(b.fecha) - new Date(a.fecha));
+    ultimaActualizacion = new Date();
+  }catch(e){
+    ventasError = 'No se pudieron leer las ventas (¿PIN vencido? probá reingresar).';
+  }
+  cargandoVentas = false;
+  render();
+}
+
+function render(){
+  const comprasPeriodo = compras.filter(c=>enPeriodo(c.fecha));
+  const ventasFacturadas = ventasCache.filter(v=>v.facturada && enPeriodo(v.fecha));
+  const ventasPendientes = ventasCache.filter(v=>!v.facturada && enPeriodo(v.fecha));
+
+  const totCompra = comprasPeriodo.reduce((s,c)=>s+c.iva,0);
+  const totVenta = ventasFacturadas.reduce((s,v)=>s+(v.iva||0),0);
+  const saldo = totVenta - totCompra;
+
+  $.innerHTML = `
+    <header>
+      <div>
+        <h1>Libro IVA</h1>
+        <p class="subtitle">IVA compra manual · IVA venta automático desde pos-rastex</p>
+      </div>
+      <button class="btn-logout" id="btnLogout">Salir</button>
+    </header>
+
+    <div class="totales">
+      <div class="tot-card compra">
+        <div class="label">IVA compra</div>
+        <div class="valor">${fmt(totCompra)}</div>
+      </div>
+      <div class="tot-card venta">
+        <div class="label">IVA venta</div>
+        <div class="valor">${fmt(totVenta)}</div>
+      </div>
+      <div class="tot-card saldo">
+        <div class="label">${saldo>=0 ? 'IVA a pagar' : 'IVA a favor'}</div>
+        <div class="valor" style="color:${saldo>=0?'var(--saldo-neg)':'var(--saldo-pos)'}">${fmt(Math.abs(saldo))}</div>
+      </div>
+    </div>
+
+    <div class="periodo">
+      <button class="periodo-btn ${periodo==='mes'?'active':''}" data-p="mes">Este mes</button>
+      <button class="periodo-btn ${periodo==='anterior'?'active':''}" data-p="anterior">Mes anterior</button>
+      <button class="periodo-btn ${periodo==='todo'?'active':''}" data-p="todo">Todo</button>
+    </div>
+
+    <div class="seccion">
+      <div class="seccion-titulo">
+        <h2>IVA Compra</h2>
+      </div>
+      <form id="formCompra">
+        <div class="campos">
+          <div>
+            <label for="fecha">Fecha</label>
+            <input type="date" id="fecha" required>
+          </div>
+          <div>
+            <label for="nroComp">N° comprobante</label>
+            <input type="text" id="nroComp" placeholder="0001-00001234">
+          </div>
+          <div class="campo-full">
+            <label for="razon">Proveedor</label>
+            <input type="text" id="razon" placeholder="Nombre o razón social">
+          </div>
+          <div>
+            <label for="neto">Monto neto</label>
+            <input type="number" id="neto" step="0.01" min="0" placeholder="0.00">
+          </div>
+          <div>
+            <label for="ivaMonto">IVA (21%)</label>
+            <input type="number" id="ivaMonto" step="0.01" min="0" placeholder="0.00">
+          </div>
+        </div>
+        <button type="submit" class="btn-agregar">Agregar compra</button>
+      </form>
+      <div class="lista">
+        ${comprasPeriodo.length===0 ? '<div class="vacio">Sin compras cargadas en este período.</div>' :
+          comprasPeriodo.map(c=>`
+            <div class="item compra">
+              <div class="item-info">
+                <div class="item-comp">${c.razon || 'Compra'}</div>
+                <div class="item-meta">${c.fecha||'sin fecha'}${c.nroComp ? ' · '+c.nroComp : ''}</div>
+              </div>
+              <div class="item-montos">
+                <div class="item-iva">${fmt(c.iva)}</div>
+                <div class="item-neto">neto ${fmt(c.neto)}</div>
+              </div>
+              <button class="item-del" data-del="${c.id}">✕</button>
+            </div>
+          `).join('')}
+      </div>
+    </div>
+
+    <div class="seccion">
+      <div class="seccion-titulo">
+        <h2>IVA Venta</h2>
+        <button class="btn-refresh" id="btnRefresh">${cargandoVentas ? 'Actualizando…' : 'Actualizar'}</button>
+      </div>
+      ${ventasError ? `<div class="estado">${ventasError}</div>` : ''}
+      <div class="lista">
+        ${ventasFacturadas.length===0 && !cargandoVentas ? '<div class="vacio">No hay ventas facturadas en este período.</div>' :
+          ventasFacturadas.map(v=>`
+            <div class="item venta">
+              <div class="item-info">
+                <div class="item-comp">${v.numeroComprobante ? 'Fact. '+v.numeroComprobante : 'Venta'}<span class="negocio-tag">${v.negocio}</span></div>
+                <div class="item-meta">${(v.fecha||'').slice(0,10)}${v.cae ? ' · CAE '+v.cae : ''}</div>
+              </div>
+              <div class="item-montos">
+                <div class="item-iva">${fmt(v.iva)}</div>
+                <div class="item-neto">neto ${fmt(v.neto)}</div>
+              </div>
+            </div>
+          `).join('')}
+      </div>
+      ${ventasPendientes.length>0 ? `
+        <div class="estado">
+          ${ventasPendientes.length} venta(s) sin facturar en este período (no suman IVA todavía)<span class="pendiente-tag">pendiente</span>
+        </div>` : ''}
+      <div class="estado">${ultimaActualizacion ? 'Actualizado ' + ultimaActualizacion.toLocaleTimeString('es-AR') : ''}</div>
+    </div>
+  `;
+
+  document.getElementById('btnLogout').addEventListener('click', ()=> signOut(auth));
+  document.getElementById('btnRefresh').addEventListener('click', cargarVentas);
+  document.querySelectorAll('.periodo-btn').forEach(b=>{
+    b.addEventListener('click', ()=>{ periodo = b.dataset.p; render(); });
+  });
+  document.querySelectorAll('[data-del]').forEach(b=>{
+    b.addEventListener('click', async ()=>{
+      compras = compras.filter(c=>c.id !== b.dataset.del);
+      await guardarCompras();
+      render();
+    });
+  });
+  document.getElementById('neto').addEventListener('input', (e)=>{
+    const ivaEl = document.getElementById('ivaMonto');
+    if(!ivaEl.value){
+      const neto = parseFloat(e.target.value);
+      if(!isNaN(neto)) ivaEl.value = (neto*0.21).toFixed(2);
+    }
+  });
+  document.getElementById('formCompra').addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const entry = {
+      id: Date.now().toString(36),
+      fecha: document.getElementById('fecha').value,
+      nroComp: document.getElementById('nroComp').value.trim(),
+      razon: document.getElementById('razon').value.trim(),
+      neto: parseFloat(document.getElementById('neto').value) || 0,
+      iva: parseFloat(document.getElementById('ivaMonto').value) || 0,
+    };
+    compras.unshift(entry);
+    await guardarCompras();
+    e.target.reset();
+    render();
+  });
+}
+
+onAuthStateChanged(auth, async (user)=>{
+  if(user){
+    await cargarCompras();
+    render();
+    cargarVentas();
+  } else {
+    renderLogin('');
+  }
+});
+</script>
+</body>
+</html>
