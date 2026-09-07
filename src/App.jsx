@@ -2426,10 +2426,10 @@ export default function App() {
                         {v.recargoPct > 0 && <span className="text-green-700"> · +{v.recargoPct}% recargo</span>}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0 no-print">
+                    <div className="flex items-center gap-2 shrink-0">
                       <button
                         onClick={() => setRemitoVenta(v)}
-                        className="w-7 h-7 rounded hover:bg-black/5 flex items-center justify-center text-black/40"
+                        className="no-print w-7 h-7 rounded hover:bg-black/5 flex items-center justify-center text-black/40"
                         title="Ver remito"
                       >
                         <Receipt size={14} />
