@@ -131,21 +131,23 @@ function todayKey() {
 }
 
 function cargarNegocioData(id) {
-  return storage
-    .get("negocio:" + id)
-    .then((res) => {
-      if (res) {
-        const parsed = JSON.parse(res.value);
-        return {
-          productos: parsed.productos || seedProductos(id),
-          ventas: parsed.ventas || [],
-          retiros: parsed.retiros || [],
-          caja: parsed.caja || cajaCerradaDefault(),
-        };
-      }
-      return { productos: seedProductos(id), ventas: [], retiros: [], caja: cajaCerradaDefault() };
-    })
-    .catch(() => ({ productos: seedProductos(id), ventas: [], retiros: [], caja: cajaCerradaDefault() }));
+  return storage.get("negocio:" + id).then((res) => {
+    if (res) {
+      const parsed = JSON.parse(res.value);
+      return {
+        productos: parsed.productos || seedProductos(id),
+        ventas: parsed.ventas || [],
+        retiros: parsed.retiros || [],
+        caja: parsed.caja || cajaCerradaDefault(),
+      };
+    }
+    // El documento realmente no existe todavía (primera vez que se usa este negocio).
+    return { productos: seedProductos(id), ventas: [], retiros: [], caja: cajaCerradaDefault() };
+  });
+  // A propósito SIN .catch() acá: si falla la lectura (red, permisos, etc.),
+  // el error se propaga y quien llama decide qué hacer. Nunca hay que
+  // interpretar un error como "está vacío" y pisar el catálogo real con
+  // datos de muestra — eso fue justamente lo que borró el stock antes.
 }
 
 function LoginScreen({ onLogin }) {
@@ -349,14 +351,21 @@ export default function App() {
     if (tab === "cuentacolegio" && negocioId !== "colegio") {
       setTab("venta");
     }
-    cargarNegocioData(negocioId).then((val) => {
-      if (cancelado) return;
-      setData((prev) => ({ ...prev, [negocioId]: val }));
-      if (!val.caja.abierta && val.caja.cierres.length > 0) {
-        setMontoApertura(String(val.caja.cierres[0].efectivoFinal));
-      }
-      setLoading(false);
-    });
+    cargarNegocioData(negocioId)
+      .then((val) => {
+        if (cancelado) return;
+        setData((prev) => ({ ...prev, [negocioId]: val }));
+        if (!val.caja.abierta && val.caja.cierres.length > 0) {
+          setMontoApertura(String(val.caja.cierres[0].efectivoFinal));
+        }
+        setLoading(false);
+      })
+      .catch((e) => {
+        if (cancelado) return;
+        console.error("No se pudo cargar el negocio:", e);
+        alert("No se pudo cargar " + negocioId + " (falló la conexión). Probá el botón de actualizar (🔄) en unos segundos. No se tocó ningún dato.");
+        setLoading(false);
+      });
     return () => {
       cancelado = true;
     };
@@ -368,15 +377,26 @@ export default function App() {
       .then((val) => {
         setData((prev) => ({ ...prev, [negocioId]: val }));
       })
+      .catch((e) => {
+        console.error("No se pudo actualizar:", e);
+        alert("No se pudo actualizar ahora (falló la conexión). Se mantiene lo que ya tenías cargado en pantalla.");
+      })
       .finally(() => setActualizando(false));
   }
 
   useEffect(() => {
     if (!usuario) return;
     const intervalo = setInterval(() => {
-      cargarNegocioData(negocioId).then((val) => {
-        setData((prev) => ({ ...prev, [negocioId]: val }));
-      });
+      cargarNegocioData(negocioId)
+        .then((val) => {
+          setData((prev) => ({ ...prev, [negocioId]: val }));
+        })
+        .catch((e) => {
+          // Auto-refresco silencioso: si falla, NO tocamos los datos que ya
+          // están en pantalla. Mejor quedarse con lo último bueno que
+          // reemplazarlo por error.
+          console.error("Auto-actualización falló (se mantiene lo que había):", e);
+        });
     }, 20000);
     return () => clearInterval(intervalo);
   }, [usuario, negocioId]);
@@ -390,13 +410,23 @@ export default function App() {
   const listaStockBajo = useMemo(() => itemsStockBajo(negocioData.productos), [negocioData.productos]);
 
   function persist(next) {
+    if (
+      next.productos &&
+      next.productos.length === 0 &&
+      negocioData.productos &&
+      negocioData.productos.length > 0
+    ) {
+      const confirmar = window.confirm(
+        "⚠️ Estás por guardar este negocio SIN NINGÚN PRODUCTO, pero hasta ahora tenía " +
+          negocioData.productos.length +
+          ". Esto puede ser un error del sistema.\n\n¿Confirmás que realmente querés dejarlo vacío?"
+      );
+      if (!confirmar) return;
+    }
     setData((prev) => ({ ...prev, [negocioId]: next }));
-    storage.set(storageKey, JSON.stringify(next)).then((res) => {
-      if (!res) {
-        console.error("No se pudo guardar en Firestore (storage.set devolvió null). Revisá la consola arriba por el error real.");
-      } else {
-        console.log("Guardado OK en Firestore:", storageKey);
-      }
+    storage.set(storageKey, JSON.stringify(next)).catch((e) => {
+      console.error("No se pudo guardar en Firestore:", e);
+      alert("⚠️ No se pudo guardar este cambio (falló la conexión). Quedó en pantalla pero puede no haberse grabado — revisá tu conexión y volvé a intentar la acción.");
     });
   }
 
