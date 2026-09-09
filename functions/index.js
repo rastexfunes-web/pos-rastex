@@ -224,3 +224,33 @@ exports.generarFacturaPDF = functions
       throw new functions.https.HttpsError("internal", "No se pudo generar el PDF: " + detalle.slice(0, 1200));
     }
   });
+
+/**
+ * backupDiario — Se ejecuta solo, todos los días a las 16:00 (hora
+ * Argentina). Copia el estado actual de todos los negocios (productos,
+ * ventas, retiros, caja) a la colección "backups", con la fecha como ID.
+ */
+const NEGOCIOS_IDS = ["colegio", "egresados", "clubes", "dtf", "complejo"];
+
+exports.backupDiario = functions.pubsub
+  .schedule("0 16 * * *")
+  .timeZone("America/Argentina/Buenos_Aires")
+  .onRun(async (context) => {
+    const db = admin.firestore();
+    const datos = {};
+    for (const id of NEGOCIOS_IDS) {
+      const snap = await db.collection("posData").doc("negocio:" + id).get();
+      if (snap.exists) datos[id] = snap.data().value;
+    }
+    const fecha = new Date().toLocaleDateString("sv-SE", { timeZone: "America/Argentina/Buenos_Aires" }); // YYYY-MM-DD
+    await db.collection("backups").doc(fecha).set({
+      fecha,
+      tipo: "automatico",
+      creado: admin.firestore.FieldValue.serverTimestamp(),
+      datos,
+    });
+    console.log("Backup diario guardado:", fecha);
+    return null;
+  });
+
+// Deploy automatico activado 2026-09-09T17:52:57Z
