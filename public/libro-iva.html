@@ -237,32 +237,43 @@ async function cargarVentas(){
   cargandoVentas = true;
   ventasError = '';
   render();
+  const debugLineas = [];
   try{
     const resultados = await Promise.all(NEGOCIOS.map(async neg=>{
-      const ref = doc(db, 'posData', 'negocio:' + neg.id);
-      const snap = await getDoc(ref);
-      if(!snap.exists()) return [];
-      const raw = snap.data().value;
-      let data = {};
-      try{ data = typeof raw === 'string' ? JSON.parse(raw) : (raw || {}); }
-      catch(e){ data = {}; }
-      const ventas = Array.isArray(data.ventas) ? data.ventas : [];
-      return ventas.map(v => ({
-        negocio: neg.nombre,
-        fecha: v.fecha,
-        total: v.total,
-        neto: v.impNeto,
-        iva: v.impIVA,
-        cae: v.cae,
-        numeroComprobante: v.numeroComprobante,
-        facturada: !!v.facturada && v.impIVA != null,
-      }));
+      try{
+        const ref = doc(db, 'posData', 'negocio:' + neg.id);
+        const snap = await getDoc(ref);
+        if(!snap.exists()){
+          debugLineas.push(neg.nombre + ': doc no existe');
+          return [];
+        }
+        const raw = snap.data().value;
+        let data = {};
+        try{ data = typeof raw === 'string' ? JSON.parse(raw) : (raw || {}); }
+        catch(e){ debugLineas.push(neg.nombre + ': error al parsear JSON — ' + e.message); data = {}; }
+        const ventas = Array.isArray(data.ventas) ? data.ventas : [];
+        debugLineas.push(neg.nombre + ': ' + ventas.length + ' ventas totales (tipo de dato guardado: ' + typeof raw + ')');
+        return ventas.map(v => ({
+          negocio: neg.nombre,
+          fecha: v.fecha,
+          total: v.total,
+          neto: v.impNeto,
+          iva: v.impIVA,
+          cae: v.cae,
+          numeroComprobante: v.numeroComprobante,
+          facturada: !!v.facturada && v.impIVA != null,
+        }));
+      }catch(e){
+        debugLineas.push(neg.nombre + ': ERROR — ' + (e.code || e.message));
+        return [];
+      }
     }));
     ventasCache = resultados.flat().sort((a,b)=> new Date(b.fecha) - new Date(a.fecha));
     ultimaActualizacion = new Date();
   }catch(e){
-    ventasError = 'No se pudieron leer las ventas (¿PIN vencido? probá reingresar).';
+    ventasError = 'No se pudieron leer las ventas: ' + (e.code || e.message);
   }
+  window.__debugVentas = debugLineas;
   cargandoVentas = false;
   render();
 }
@@ -379,6 +390,7 @@ function render(){
           ${ventasPendientes.length} venta(s) sin facturar en este período (no suman IVA todavía)<span class="pendiente-tag">pendiente</span>
         </div>` : ''}
       <div class="estado">${ultimaActualizacion ? 'Actualizado ' + ultimaActualizacion.toLocaleTimeString('es-AR') : ''}</div>
+      <div class="estado" style="text-align:left;background:#fff;border:1px solid var(--line);border-radius:4px;padding:10px;margin-top:10px;white-space:pre-wrap;font-family:'IBM Plex Mono',monospace;font-size:0.72rem;">${(window.__debugVentas||[]).join('\n') || 'Sin diagnóstico todavía — apretá Actualizar.'}</div>
     </div>
   `;
 
