@@ -252,3 +252,5 @@ exports.backupDiario = functions.pubsub
     console.log("Backup diario guardado:", fecha);
     return null;
   });
+
+// Deploy automatico activado 2026-09-09T17:52:57Z
