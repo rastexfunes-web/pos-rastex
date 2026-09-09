@@ -4,7 +4,7 @@ import {
   ArrowLeftRight, ChevronDown, Pencil, X, Check, Wallet, QrCode, LogOut, Building2, Printer,
   Download, MessageCircle, Receipt, RefreshCw,
 } from "lucide-react";
-import { storage, loginConPin, logout, functionsInstance } from "./firebase.js";
+import { storage, loginConPin, logout, functionsInstance, backupsApi } from "./firebase.js";
 import { httpsCallable } from "firebase/functions";
 
 
@@ -218,6 +218,12 @@ export default function App() {
   const [agregandoProductoAbierto, setAgregandoProductoAbierto] = useState(false);
   const [productoRecienAgregado, setProductoRecienAgregado] = useState(false);
   const [productoExpandidoId, setProductoExpandidoId] = useState(null);
+  const [verBackups, setVerBackups] = useState(false);
+  const [listaBackups, setListaBackups] = useState([]);
+  const [cargandoBackups, setCargandoBackups] = useState(false);
+  const [backupARestaurar, setBackupARestaurar] = useState(null);
+  const [textoConfirmarRestaurar, setTextoConfirmarRestaurar] = useState("");
+  const [restaurando, setRestaurando] = useState(false);
   const [generandoPdf, setGenerandoPdf] = useState(false);
   const [urlPdfFactura, setUrlPdfFactura] = useState(null);
   const [carrito, setCarrito] = useState([]);
@@ -382,6 +388,78 @@ export default function App() {
         alert("No se pudo actualizar ahora (falló la conexión). Se mantiene lo que ya tenías cargado en pantalla.");
       })
       .finally(() => setActualizando(false));
+  }
+
+  async function abrirBackups() {
+    setVerBackups(true);
+    setCargandoBackups(true);
+    try {
+      const lista = await backupsApi.listar();
+      setListaBackups(lista);
+    } catch (e) {
+      alert("No se pudo traer la lista de copias de seguridad: " + (e.message || String(e)));
+    } finally {
+      setCargandoBackups(false);
+    }
+  }
+
+  function descargarBackup(b) {
+    const blob = new Blob([JSON.stringify(b.datos, null, 2)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "backup-rastex-" + b.fecha + ".json";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function iniciarRestaurar(b) {
+    const ok = window.confirm(
+      "⚠️ Estás por restaurar la copia del " +
+        b.fecha +
+        ".\n\nEsto va a REEMPLAZAR todos los datos actuales (productos, ventas, retiros y caja) de TODOS los negocios por como estaban ese día.\n\nAntes de tocar nada, se va a guardar automáticamente un backup de seguridad de cómo está todo AHORA MISMO, por si te arrepentís.\n\n¿Querés continuar?"
+    );
+    if (!ok) return;
+    setBackupARestaurar(b);
+    setTextoConfirmarRestaurar("");
+  }
+
+  async function confirmarRestaurar() {
+    if (!backupARestaurar) return;
+    if (textoConfirmarRestaurar.trim().toUpperCase() !== "RESTAURAR") {
+      alert('Tenés que escribir la palabra "RESTAURAR" exactamente para confirmar.');
+      return;
+    }
+    setRestaurando(true);
+    try {
+      // 1) Guardar backup de seguridad de cómo está todo ahora mismo, antes de tocar nada.
+      const datosActuales = {};
+      for (const n of NEGOCIOS) {
+        const val = await backupsApi.leerNegocioActual(n.id);
+        if (val) datosActuales[n.id] = val;
+      }
+      const idSeguridad = "pre-restore-" + Date.now();
+      await backupsApi.guardar(idSeguridad, datosActuales, "seguridad-antes-de-restaurar");
+
+      // 2) Restaurar cada negocio con los datos del backup elegido.
+      const entradas = Object.entries(backupARestaurar.datos || {});
+      for (const [negId, val] of entradas) {
+        await backupsApi.restaurarNegocio(negId, val);
+      }
+
+      alert(
+        "✅ Restaurado con éxito a como estaba el " +
+          backupARestaurar.fecha +
+          ".\n\nGuardamos un backup de seguridad de cómo estaba todo antes de restaurar (por si te arrepentís): " +
+          idSeguridad +
+          "\n\nLa página se va a recargar para traer los datos nuevos."
+      );
+      window.location.reload();
+    } catch (e) {
+      alert("No se pudo restaurar: " + (e.message || String(e)));
+    } finally {
+      setRestaurando(false);
+    }
   }
 
   useEffect(() => {
@@ -2807,6 +2885,14 @@ export default function App() {
             </div>
 
             <div className="mt-8 pt-4 border-t border-black/10 no-print">
+              {usuario.rol === "dueno" && (
+                <button
+                  onClick={abrirBackups}
+                  className="text-xs text-blue-600 font-medium hover:underline mr-4"
+                >
+                  Copias de seguridad
+                </button>
+              )}
               {!confirmarReinicio ? (
                 <button
                   onClick={() => setConfirmarReinicio(true)}
@@ -3154,6 +3240,104 @@ export default function App() {
                 Listo
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {verBackups && (
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 no-print"
+          onClick={() => {
+            if (!backupARestaurar) setVerBackups(false);
+          }}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl w-full max-w-lg p-5 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-bold text-lg">Copias de seguridad</h2>
+              <button onClick={() => setVerBackups(false)} className="w-8 h-8 rounded hover:bg-black/5 flex items-center justify-center">
+                <X size={18} />
+              </button>
+            </div>
+
+            {!backupARestaurar ? (
+              <>
+                <p className="text-xs text-black/40 mb-3">
+                  Se guarda una copia automática todos los días a las 16hs, con los datos de todos los negocios (productos, ventas, retiros y caja).
+                </p>
+                {cargandoBackups ? (
+                  <p className="text-sm text-black/40 py-6 text-center">Cargando...</p>
+                ) : listaBackups.length === 0 ? (
+                  <p className="text-sm text-black/40 py-6 text-center">Todavía no hay ninguna copia guardada.</p>
+                ) : (
+                  <div className="divide-y divide-black/5">
+                    {listaBackups.map((b) => (
+                      <div key={b.id} className="py-3 flex items-center justify-between gap-2 flex-wrap">
+                        <div>
+                          <p className="font-medium text-sm">{b.fecha}</p>
+                          <p className="text-xs text-black/40">
+                            {b.tipo === "automatico" ? "Automática (16hs)" : b.tipo === "seguridad-antes-de-restaurar" ? "Seguridad (antes de una restauración)" : "Manual"}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => descargarBackup(b)}
+                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-black/15 text-xs font-medium text-black/60 hover:bg-black/5"
+                          >
+                            <Download size={13} /> Descargar
+                          </button>
+                          <button
+                            onClick={() => iniciarRestaurar(b)}
+                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-red-200 bg-red-50 text-xs font-medium text-red-700 hover:bg-red-100"
+                          >
+                            Restaurar
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div>
+                <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-3">
+                  <p className="text-sm font-semibold text-red-800 mb-1">
+                    Último paso para restaurar la copia del {backupARestaurar.fecha}
+                  </p>
+                  <p className="text-xs text-red-700/70">
+                    Para confirmar, escribí la palabra <strong>RESTAURAR</strong> en el campo de abajo.
+                  </p>
+                </div>
+                <input
+                  type="text"
+                  value={textoConfirmarRestaurar}
+                  onChange={(e) => setTextoConfirmarRestaurar(e.target.value)}
+                  placeholder='Escribí "RESTAURAR"'
+                  className="w-full px-3 py-2 rounded-lg border border-black/15 text-sm font-mono uppercase mb-3"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={confirmarRestaurar}
+                    disabled={restaurando}
+                    className="flex-1 py-2.5 rounded-lg bg-red-600 text-white font-bold text-sm disabled:opacity-40 hover:brightness-110"
+                  >
+                    {restaurando ? "Restaurando..." : "Confirmar restauración"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setBackupARestaurar(null);
+                      setTextoConfirmarRestaurar("");
+                    }}
+                    disabled={restaurando}
+                    className="px-4 py-2.5 rounded-lg border border-black/10 text-sm text-black/60 hover:bg-black/5"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
