@@ -41,26 +41,22 @@ export function logout() {
 
 // Misma "forma" que el storage anterior (get/set con key/value),
 // pero ahora leyendo y escribiendo de verdad en Firestore.
+//
+// IMPORTANTE: get() NO debe devolver null ni datos vacíos ante un error de
+// red/permiso — eso hacía que la app pensara "este negocio no tiene
+// productos todavía" y pisara el catálogo real con datos de muestra en el
+// próximo guardado. Ahora, si falla la lectura, se propaga el error de
+// verdad para que quien llama decida (nunca hay que asumir "está vacío").
 export const storage = {
   async get(key) {
-    try {
-      const ref = doc(db, "posData", key);
-      const snap = await getDoc(ref);
-      if (!snap.exists()) return null;
-      return { key, value: snap.data().value };
-    } catch (e) {
-      console.error("storage.get error:", e);
-      return null;
-    }
+    const ref = doc(db, "posData", key);
+    const snap = await getDoc(ref); // si falla, tira error de verdad (no lo tapamos)
+    if (!snap.exists()) return null; // esto sí significa "todavía no existe", genuino
+    return { key, value: snap.data().value };
   },
   async set(key, value) {
-    try {
-      const ref = doc(db, "posData", key);
-      await setDoc(ref, { value, actualizado: new Date().toISOString() });
-      return { key, value };
-    } catch (e) {
-      console.error("storage.set error:", e);
-      return null;
-    }
+    const ref = doc(db, "posData", key);
+    await setDoc(ref, { value, actualizado: new Date().toISOString() });
+    return { key, value };
   },
 };
