@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore, doc, getDoc, setDoc } from "firebase/firestore";
+import { getFirestore, doc, getDoc, setDoc, collection, getDocs, query, orderBy } from "firebase/firestore";
 import { getAuth, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { getFunctions } from "firebase/functions";
 
@@ -58,5 +58,29 @@ export const storage = {
     const ref = doc(db, "posData", key);
     await setDoc(ref, { value, actualizado: new Date().toISOString() });
     return { key, value };
+  },
+};
+
+// Copias de seguridad (backups). El backup automático de todos los días a
+// las 16hs lo hace la Cloud Function "backupDiario" — esto de acá es lo que
+// necesita el panel de Marcelo para listar, descargar y restaurar.
+export const backupsApi = {
+  async listar() {
+    const q = query(collection(db, "backups"), orderBy("fecha", "desc"));
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  },
+  async guardar(id, datos, tipo) {
+    const ref = doc(db, "backups", id);
+    await setDoc(ref, { fecha: id, tipo: tipo || "manual", creado: new Date().toISOString(), datos });
+  },
+  async leerNegocioActual(negocioId) {
+    const ref = doc(db, "posData", "negocio:" + negocioId);
+    const snap = await getDoc(ref);
+    return snap.exists() ? snap.data().value : null;
+  },
+  async restaurarNegocio(negocioId, valorJSON) {
+    const ref = doc(db, "posData", "negocio:" + negocioId);
+    await setDoc(ref, { value: valorJSON, actualizado: new Date().toISOString() });
   },
 };
