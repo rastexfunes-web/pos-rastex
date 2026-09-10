@@ -174,6 +174,7 @@ const fmt = n => '$' + Number(n||0).toLocaleString('es-AR', {minimumFractionDigi
 let compras = [];
 let ventasCache = [];
 let periodo = 'mes';
+let mostrarAcumulado = false;
 let cargandoVentas = false;
 let ventasError = '';
 let ultimaActualizacion = null;
@@ -278,6 +279,58 @@ async function cargarVentas(){
   render();
 }
 
+function calcularAcumulado(){
+  // Junta compras y ventas facturadas en un mapa por mes (YYYY-MM)
+  const meses = {};
+  compras.forEach(c=>{
+    if(!c.fecha) return;
+    const key = c.fecha.slice(0,7);
+    meses[key] = meses[key] || {compra:0, venta:0};
+    meses[key].compra += c.iva;
+  });
+  ventasCache.filter(v=>v.facturada).forEach(v=>{
+    if(!v.fecha) return;
+    const key = v.fecha.slice(0,7);
+    meses[key] = meses[key] || {compra:0, venta:0};
+    meses[key].venta += (v.iva||0);
+  });
+  const claves = Object.keys(meses).sort();
+  let acumulado = 0;
+  return claves.map(key=>{
+    const {compra, venta} = meses[key];
+    const diferencia = venta - compra;
+    acumulado += diferencia;
+    const [y,m] = key.split('-');
+    const nombreMes = new Date(Number(y), Number(m)-1, 1).toLocaleDateString('es-AR',{month:'long', year:'numeric'});
+    return { key, nombreMes, compra, venta, diferencia, acumulado };
+  });
+}
+
+function renderAcumulado(){
+  const filas = calcularAcumulado();
+  if(filas.length===0){
+    return `<div class="seccion"><div class="vacio">Todavía no hay datos suficientes para armar el histórico.</div></div>`;
+  }
+  return `
+    <div class="seccion">
+      <div class="lista">
+        ${filas.map(f=>`
+          <div class="item" style="border-left-color:${f.acumulado>=0?'var(--saldo-neg)':'var(--saldo-pos)'};">
+            <div class="item-info">
+              <div class="item-comp" style="text-transform:capitalize;">${f.nombreMes}</div>
+              <div class="item-meta">compra ${fmt(f.compra)} · venta ${fmt(f.venta)} · dif. ${f.diferencia>=0?'+':''}${fmt(f.diferencia)}</div>
+            </div>
+            <div class="item-montos">
+              <div class="item-iva" style="color:${f.acumulado>=0?'var(--saldo-neg)':'var(--saldo-pos)'};">${fmt(Math.abs(f.acumulado))}</div>
+              <div class="item-neto">${f.acumulado>=0?'a pagar acum.':'a favor acum.'}</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
 function render(){
   const comprasPeriodo = compras.filter(c=>enPeriodo(c.fecha));
   const ventasFacturadas = ventasCache.filter(v=>v.facturada && enPeriodo(v.fecha));
@@ -315,7 +368,10 @@ function render(){
       <button class="periodo-btn ${periodo==='mes'?'active':''}" data-p="mes">Este mes</button>
       <button class="periodo-btn ${periodo==='anterior'?'active':''}" data-p="anterior">Mes anterior</button>
       <button class="periodo-btn ${periodo==='todo'?'active':''}" data-p="todo">Todo</button>
+      <button class="periodo-btn" id="btnAcumulado" style="margin-left:auto;">${mostrarAcumulado ? 'Ocultar acumulado' : 'Ver saldo acumulado'}</button>
     </div>
+
+    ${mostrarAcumulado ? renderAcumulado() : ''}
 
     <div class="seccion">
       <div class="seccion-titulo">
@@ -396,6 +452,7 @@ function render(){
 
   document.getElementById('btnLogout').addEventListener('click', ()=> signOut(auth));
   document.getElementById('btnRefresh').addEventListener('click', cargarVentas);
+  document.getElementById('btnAcumulado').addEventListener('click', ()=>{ mostrarAcumulado = !mostrarAcumulado; render(); });
   document.querySelectorAll('.periodo-btn').forEach(b=>{
     b.addEventListener('click', ()=>{ periodo = b.dataset.p; render(); });
   });
