@@ -1104,6 +1104,12 @@ export default function App() {
     [negocioData.ventas]
   );
 
+  // Para el panel "Ventas del día": sin Cuenta Colegio, porque esas no se
+  // cobran ese día (quedan a deber, se le factura aparte a la dirección) —
+  // mismo criterio que ya se usa en Informes.
+  const ventasHoySinColegio = useMemo(() => ventasHoy.filter((v) => v.tipoPago !== "colegio"), [ventasHoy]);
+  const resumenHoySinColegio = useMemo(() => calcularResumenPago(ventasHoySinColegio), [ventasHoySinColegio]);
+
   function iniciarEdicionRetiro(r) {
     setEditandoRetiroId(r.id);
     setMontoEdicionRetiro(String(r.monto));
@@ -3358,30 +3364,32 @@ export default function App() {
               </button>
             </div>
 
+            <p className="text-xs text-black/40 mb-3">No incluye Cuenta Colegio (esas no se cobran el mismo día, se le factura aparte a la dirección).</p>
+
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
               <div className="bg-blue-50 rounded-lg p-3">
                 <p className="text-xs text-black/40 mb-1">Ventas</p>
-                <p className="font-mono font-bold text-lg">{resumenHoy.cantidad}</p>
+                <p className="font-mono font-bold text-lg">{resumenHoySinColegio.cantidad}</p>
               </div>
               {PAGOS.map((p) => (
                 <div key={p.id} className="bg-blue-50 rounded-lg p-3">
                   <p className="text-xs text-black/40 mb-1">{p.label}</p>
-                  <p className="font-mono font-bold">{money(resumenHoy[p.id] || 0)}</p>
+                  <p className="font-mono font-bold">{money(resumenHoySinColegio[p.id] || 0)}</p>
                 </div>
               ))}
             </div>
 
             <div className="bg-slate-800 text-white rounded-lg p-3 flex items-center justify-between mb-4">
               <span className="font-medium text-sm">Total del día</span>
-              <span className="font-mono font-bold text-lg">{money(resumenHoy.total)}</span>
+              <span className="font-mono font-bold text-lg">{money(resumenHoySinColegio.total)}</span>
             </div>
 
             <h3 className="font-semibold text-sm mb-2">Detalle</h3>
             <div className="bg-white rounded-xl shadow-sm border border-black/5 divide-y divide-black/5">
-              {ventasHoy.length === 0 ? (
+              {ventasHoySinColegio.length === 0 ? (
                 <p className="p-4 text-sm text-black/40">Todavía no hay ventas hoy.</p>
               ) : (
-                ventasHoy.map((v) => (
+                ventasHoySinColegio.map((v) => (
                   <div key={v.id} className="p-3 flex items-center justify-between text-sm">
                     <div>
                       <p className="font-medium">{v.items.map((i) => i.cantidad + "x " + i.nombre).join(", ")}</p>
