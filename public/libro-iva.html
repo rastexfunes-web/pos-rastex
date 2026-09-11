@@ -172,6 +172,7 @@ const $ = document.getElementById('app');
 const fmt = n => '$' + Number(n||0).toLocaleString('es-AR', {minimumFractionDigits:2, maximumFractionDigits:2});
 
 let compras = [];
+let ventasManuales = [];
 let ventasCache = [];
 let periodo = 'mes';
 let mostrarAcumulado = false;
@@ -234,6 +235,22 @@ async function guardarCompras(){
   }catch(e){ /* noop */ }
 }
 
+async function cargarVentasManuales(){
+  try{
+    const ref = doc(db, 'posData', 'iva-ventas-manuales');
+    const snap = await getDoc(ref);
+    if(!snap.exists()){ ventasManuales = []; return; }
+    const raw = snap.data().value;
+    ventasManuales = typeof raw === 'string' ? JSON.parse(raw) : (Array.isArray(raw) ? raw : []);
+  }catch(e){ ventasManuales = []; }
+}
+async function guardarVentasManuales(){
+  try{
+    const ref = doc(db, 'posData', 'iva-ventas-manuales');
+    await setDoc(ref, { value: JSON.stringify(ventasManuales), actualizado: new Date().toISOString() });
+  }catch(e){ /* noop */ }
+}
+
 async function cargarVentas(){
   cargandoVentas = true;
   ventasError = '';
@@ -269,7 +286,12 @@ async function cargarVentas(){
         return [];
       }
     }));
-    ventasCache = resultados.flat().sort((a,b)=> new Date(b.fecha) - new Date(a.fecha));
+    const manualesFormateadas = ventasManuales.map(v => ({
+      ...v,
+      facturada: true,
+      manual: true,
+    }));
+    ventasCache = resultados.flat().concat(manualesFormateadas).sort((a,b)=> new Date(b.fecha) - new Date(a.fecha));
     ultimaActualizacion = new Date();
   }catch(e){
     ventasError = 'No se pudieron leer las ventas: ' + (e.code || e.message);
@@ -426,18 +448,44 @@ function render(){
         <button class="btn-refresh" id="btnRefresh">${cargandoVentas ? 'Actualizando…' : 'Actualizar'}</button>
       </div>
       ${ventasError ? `<div class="estado">${ventasError}</div>` : ''}
+      <form id="formVenta">
+        <div class="campos">
+          <div>
+            <label for="fechaVenta">Fecha</label>
+            <input type="date" id="fechaVenta" required>
+          </div>
+          <div>
+            <label for="nroCompVenta">N° comprobante</label>
+            <input type="text" id="nroCompVenta" placeholder="0001-00001234">
+          </div>
+          <div class="campo-full">
+            <label for="clienteVenta">Cliente</label>
+            <input type="text" id="clienteVenta" placeholder="Nombre o razón social">
+          </div>
+          <div>
+            <label for="netoVenta">Monto neto</label>
+            <input type="number" id="netoVenta" step="0.01" min="0" placeholder="0.00">
+          </div>
+          <div>
+            <label for="ivaMontoVenta">IVA (21%)</label>
+            <input type="number" id="ivaMontoVenta" step="0.01" min="0" placeholder="0.00">
+          </div>
+        </div>
+        <button type="submit" class="btn-agregar">Agregar venta manual</button>
+      </form>
       <div class="lista">
         ${ventasFacturadas.length===0 && !cargandoVentas ? '<div class="vacio">No hay ventas facturadas en este período.</div>' :
           ventasFacturadas.map(v=>`
             <div class="item venta">
               <div class="item-info">
-                <div class="item-comp">${v.numeroComprobante ? 'Fact. '+v.numeroComprobante : 'Venta'}<span class="negocio-tag">${v.negocio}</span></div>
-                <div class="item-meta">${(v.fecha||'').slice(0,10)}${v.cae ? ' · CAE '+v.cae : ''}</div>
+                <div class="item-comp">${v.numeroComprobante ? 'Fact. '+v.numeroComprobante : (v.cliente || 'Venta')}<span class="negocio-tag">${v.negocio || (v.manual ? 'Manual' : '')}</span></div>
+                <div class="item-meta">${(v.fecha||'').slice(0,10)}${v.cae ? ' · CAE '+v.cae : ''}${v.manual ? ' · cargada a mano' : ''}</div>
               </div>
               <div class="item-montos">
                 <div class="item-iva">${fmt(v.iva)}</div>
                 <div class="item-neto">neto ${fmt(v.neto)}</div>
               </div>
+              ${v.manual ? `<button class="item-del" data-delventa="${v.id}">✕</button>` : ''}
             </div>
           `).join('')}
       </div>
@@ -463,6 +511,30 @@ function render(){
       render();
     });
   });
+  document.querySelectorAll('[data-delventa]').forEach(b=>{
+    b.addEventListener('click', async ()=>{
+      ventasManuales = ventasManuales.filter(v=>v.id !== b.dataset.delventa);
+      await guardarVentasManuales();
+      ventasCache = ventasCache.filter(v=>!(v.manual && v.id === b.dataset.delventa));
+      render();
+    });
+  });
+  const formVenta = document.getElementById('formVenta');
+  if(formVenta){
+    formVenta.addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      const fecha = document.getElementById('fechaVenta').value;
+      const nroComp = document.getElementById('nroCompVenta').value.trim();
+      const cliente = document.getElementById('clienteVenta').value.trim();
+      const neto = Number(document.getElementById('netoVenta').value) || 0;
+      const iva = Number(document.getElementById('ivaMontoVenta').value) || 0;
+      if(!fecha) return;
+      const nueva = { id: 'manual-' + Date.now(), fecha, nroComp, cliente, neto, iva, numeroComprobante: nroComp };
+      ventasManuales.push(nueva);
+      await guardarVentasManuales();
+      await cargarVentas();
+    });
+  }
   document.getElementById('neto').addEventListener('input', (e)=>{
     const ivaEl = document.getElementById('ivaMonto');
     if(!ivaEl.value){
@@ -490,6 +562,7 @@ function render(){
 onAuthStateChanged(auth, async (user)=>{
   if(user){
     await cargarCompras();
+    await cargarVentasManuales();
     render();
     cargarVentas();
   } else {
