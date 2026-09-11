@@ -250,6 +250,22 @@ exports.backupDiario = functions.pubsub
       datos,
     });
     console.log("Backup diario guardado:", fecha);
+
+    // Limpieza: borrar copias automáticas de hace más de 7 días. Los
+    // backups de seguridad (los que se crean solos antes de una
+    // restauración) NO se tocan acá, quedan guardados sin vencimiento.
+    const limite = new Date();
+    limite.setDate(limite.getDate() - 7);
+    const fechaLimite = limite.toLocaleDateString("sv-SE", { timeZone: "America/Argentina/Buenos_Aires" });
+
+    const viejos = await db.collection("backups").where("tipo", "==", "automatico").get();
+    const borrados = [];
+    viejos.forEach((doc) => {
+      if (doc.data().fecha < fechaLimite) borrados.push(doc.ref.delete());
+    });
+    await Promise.all(borrados);
+    if (borrados.length > 0) console.log("Backups automáticos viejos borrados:", borrados.length);
+
     return null;
   });
 
