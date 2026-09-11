@@ -2899,6 +2899,16 @@ export default function App() {
                   Copias de seguridad
                 </button>
               )}
+              {usuario.rol === "dueno" && (
+                <a
+                  href="https://rastex-gestion.com.ar/libro-iva.html"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-blue-600 font-medium hover:underline mr-4"
+                >
+                  Libro IVA
+                </a>
+              )}
               {!confirmarReinicio ? (
                 <button
                   onClick={() => setConfirmarReinicio(true)}
