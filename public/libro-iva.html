@@ -177,6 +177,7 @@ const fmt = n => '$' + Number(n||0).toLocaleString('es-AR', {minimumFractionDigi
 let compras = [];
 let proveedores = [];
 let ventasManuales = [];
+let editandoVentaId = null;
 let ventasCache = [];
 let periodo = 'mes';
 let mostrarAcumulado = false;
@@ -504,6 +505,7 @@ function render(){
       </div>
       ${ventasError ? `<div class="estado">${ventasError}</div>` : ''}
       <form id="formVenta">
+        ${editandoVentaId ? '<div class="estado" style="text-align:left;">Editando venta cargada a mano</div>' : ''}
         <div class="campos">
           <div>
             <label for="fechaVenta">Fecha</label>
@@ -526,7 +528,8 @@ function render(){
             <input type="number" id="ivaMontoVenta" step="0.01" min="0" placeholder="0.00">
           </div>
         </div>
-        <button type="submit" class="btn-agregar">Agregar venta manual</button>
+        <button type="submit" class="btn-agregar">${editandoVentaId ? 'Guardar cambios' : 'Agregar venta manual'}</button>
+        ${editandoVentaId ? '<button type="button" class="btn-agregar" id="btnCancelarEdicion" style="background:#888;margin-top:6px;">Cancelar edición</button>' : ''}
       </form>
       <div class="lista">
         ${ventasFacturadas.length===0 && !cargandoVentas ? '<div class="vacio">No hay ventas facturadas en este período.</div>' :
@@ -540,7 +543,7 @@ function render(){
                 <div class="item-iva">${fmt(v.iva)}</div>
                 <div class="item-neto">neto ${fmt(v.neto)}</div>
               </div>
-              ${v.manual ? `<button class="item-del" data-delventa="${v.id}">✕</button>` : ''}
+              ${v.manual ? `<button class="item-del" data-editventa="${v.id}" style="background:#e8eef7;color:#2b4c7e;margin-right:4px;">✎</button><button class="item-del" data-delventa="${v.id}">✕</button>` : ''}
             </div>
           `).join('')}
       </div>
@@ -571,9 +574,31 @@ function render(){
       ventasManuales = ventasManuales.filter(v=>v.id !== b.dataset.delventa);
       await guardarVentasManuales();
       ventasCache = ventasCache.filter(v=>!(v.manual && v.id === b.dataset.delventa));
+      if(editandoVentaId === b.dataset.delventa) editandoVentaId = null;
       render();
     });
   });
+  document.querySelectorAll('[data-editventa]').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      const v = ventasManuales.find(x=>x.id === b.dataset.editventa);
+      if(!v) return;
+      editandoVentaId = v.id;
+      render();
+      document.getElementById('fechaVenta').value = v.fecha || '';
+      document.getElementById('nroCompVenta').value = v.nroComp || '';
+      document.getElementById('clienteVenta').value = v.cliente || '';
+      document.getElementById('netoVenta').value = v.neto || '';
+      document.getElementById('ivaMontoVenta').value = v.iva || '';
+      document.getElementById('formVenta').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  });
+  const btnCancelarEdicion = document.getElementById('btnCancelarEdicion');
+  if(btnCancelarEdicion){
+    btnCancelarEdicion.addEventListener('click', ()=>{
+      editandoVentaId = null;
+      render();
+    });
+  }
   const formVenta = document.getElementById('formVenta');
   if(formVenta){
     formVenta.addEventListener('submit', async (e)=>{
@@ -584,8 +609,16 @@ function render(){
       const neto = Number(document.getElementById('netoVenta').value) || 0;
       const iva = Number(document.getElementById('ivaMontoVenta').value) || 0;
       if(!fecha) return;
-      const nueva = { id: 'manual-' + Date.now(), fecha, nroComp, cliente, neto, iva, numeroComprobante: nroComp };
-      ventasManuales.push(nueva);
+      if(editandoVentaId){
+        ventasManuales = ventasManuales.map(v=> v.id === editandoVentaId
+          ? { ...v, fecha, nroComp, cliente, neto, iva, numeroComprobante: nroComp }
+          : v
+        );
+        editandoVentaId = null;
+      } else {
+        const nueva = { id: 'manual-' + Date.now(), fecha, nroComp, cliente, neto, iva, numeroComprobante: nroComp };
+        ventasManuales.push(nueva);
+      }
       await guardarVentasManuales();
       await cargarVentas();
     });
