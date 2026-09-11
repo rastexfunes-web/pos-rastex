@@ -130,6 +130,9 @@
     display:inline-block;font-size:0.68rem;padding:1px 7px;border-radius:10px;
     background:#F3E7CE;color:#8A6A1F;margin-left:6px;
   }
+.proveedores-panel { margin-bottom: 14px; border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; background: #fafafa; }
+.proveedores-panel summary { cursor: pointer; font-size: 0.85rem; font-weight: 600; }
+.proveedores-panel form { margin-top: 10px; }
 </style>
 </head>
 <body>
@@ -172,6 +175,7 @@ const $ = document.getElementById('app');
 const fmt = n => '$' + Number(n||0).toLocaleString('es-AR', {minimumFractionDigits:2, maximumFractionDigits:2});
 
 let compras = [];
+let proveedores = [];
 let ventasManuales = [];
 let ventasCache = [];
 let periodo = 'mes';
@@ -232,6 +236,22 @@ async function guardarCompras(){
   try{
     const ref = doc(db, 'posData', 'iva-compras');
     await setDoc(ref, { value: JSON.stringify(compras), actualizado: new Date().toISOString() });
+  }catch(e){ /* noop */ }
+}
+
+async function cargarProveedores(){
+  try{
+    const ref = doc(db, 'posData', 'iva-proveedores');
+    const snap = await getDoc(ref);
+    if(!snap.exists()){ proveedores = []; return; }
+    const raw = snap.data().value;
+    proveedores = typeof raw === 'string' ? JSON.parse(raw) : (Array.isArray(raw) ? raw : []);
+  }catch(e){ proveedores = []; }
+}
+async function guardarProveedores(){
+  try{
+    const ref = doc(db, 'posData', 'iva-proveedores');
+    await setDoc(ref, { value: JSON.stringify(proveedores), actualizado: new Date().toISOString() });
   }catch(e){ /* noop */ }
 }
 
@@ -399,6 +419,34 @@ function render(){
       <div class="seccion-titulo">
         <h2>IVA Compra</h2>
       </div>
+      <details class="proveedores-panel">
+        <summary>Proveedores (${proveedores.length})</summary>
+        <form id="formProveedor">
+          <div class="campos">
+            <div class="campo-full">
+              <label for="provNombre">Nombre o razón social</label>
+              <input type="text" id="provNombre" placeholder="Nombre del proveedor" required>
+            </div>
+            <div>
+              <label for="provCuit">CUIT</label>
+              <input type="text" id="provCuit" placeholder="20291101519">
+            </div>
+          </div>
+          <button type="submit" class="btn-agregar">Agregar proveedor</button>
+        </form>
+        <div class="lista">
+          ${proveedores.length===0 ? '<div class="vacio">Sin proveedores cargados.</div>' :
+            proveedores.map(p=>`
+              <div class="item">
+                <div class="item-info">
+                  <div class="item-comp">${p.nombre}</div>
+                  <div class="item-meta">${p.cuit||'sin CUIT'}</div>
+                </div>
+                <button class="item-del" data-delprov="${p.id}">✕</button>
+              </div>
+            `).join('')}
+        </div>
+      </details>
       <form id="formCompra">
         <div class="campos">
           <div>
@@ -411,7 +459,14 @@ function render(){
           </div>
           <div class="campo-full">
             <label for="razon">Proveedor</label>
-            <input type="text" id="razon" placeholder="Nombre o razón social">
+            <input type="text" id="razon" placeholder="Nombre o razón social" list="listaProveedores" autocomplete="off">
+            <datalist id="listaProveedores">
+              ${proveedores.map(p=>`<option value="${p.nombre}">`).join('')}
+            </datalist>
+          </div>
+          <div>
+            <label for="cuitCompra">CUIT proveedor</label>
+            <input type="text" id="cuitCompra" placeholder="Se completa solo, o cargalo a mano">
           </div>
           <div>
             <label for="neto">Monto neto</label>
@@ -430,7 +485,7 @@ function render(){
             <div class="item compra">
               <div class="item-info">
                 <div class="item-comp">${c.razon || 'Compra'}</div>
-                <div class="item-meta">${c.fecha||'sin fecha'}${c.nroComp ? ' · '+c.nroComp : ''}</div>
+                <div class="item-meta">${c.fecha||'sin fecha'}${c.nroComp ? ' · '+c.nroComp : ''}${c.cuit ? ' · '+c.cuit : ''}</div>
               </div>
               <div class="item-montos">
                 <div class="item-iva">${fmt(c.iva)}</div>
@@ -549,6 +604,7 @@ function render(){
       fecha: document.getElementById('fecha').value,
       nroComp: document.getElementById('nroComp').value.trim(),
       razon: document.getElementById('razon').value.trim(),
+      cuit: document.getElementById('cuitCompra').value.trim(),
       neto: parseFloat(document.getElementById('neto').value) || 0,
       iva: parseFloat(document.getElementById('ivaMonto').value) || 0,
     };
@@ -557,11 +613,40 @@ function render(){
     e.target.reset();
     render();
   });
+
+  const inputRazon = document.getElementById('razon');
+  if(inputRazon){
+    inputRazon.addEventListener('input', ()=>{
+      const match = proveedores.find(p=>p.nombre.trim().toLowerCase() === inputRazon.value.trim().toLowerCase());
+      document.getElementById('cuitCompra').value = match ? (match.cuit||'') : '';
+    });
+  }
+
+  const formProveedor = document.getElementById('formProveedor');
+  if(formProveedor){
+    formProveedor.addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      const nombre = document.getElementById('provNombre').value.trim();
+      const cuit = document.getElementById('provCuit').value.trim();
+      if(!nombre) return;
+      proveedores.push({ id: Date.now().toString(36), nombre, cuit });
+      await guardarProveedores();
+      render();
+    });
+  }
+  document.querySelectorAll('[data-delprov]').forEach(b=>{
+    b.addEventListener('click', async ()=>{
+      proveedores = proveedores.filter(p=>p.id !== b.dataset.delprov);
+      await guardarProveedores();
+      render();
+    });
+  });
 }
 
 onAuthStateChanged(auth, async (user)=>{
   if(user){
     await cargarCompras();
+    await cargarProveedores();
     await cargarVentasManuales();
     render();
     cargarVentas();
