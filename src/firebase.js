@@ -83,4 +83,15 @@ export const backupsApi = {
     const ref = doc(db, "posData", "negocio:" + negocioId);
     await setDoc(ref, { value: valorJSON, actualizado: new Date().toISOString() });
   },
+  // Para documentos que no son "negocio:<id>" — por ahora, los del Libro IVA
+  // (iva-compras, iva-proveedores, iva-ventas-manuales).
+  async leerDocActual(docId) {
+    const ref = doc(db, "posData", docId);
+    const snap = await getDoc(ref);
+    return snap.exists() ? snap.data().value : null;
+  },
+  async restaurarDoc(docId, valorJSON) {
+    const ref = doc(db, "posData", docId);
+    await setDoc(ref, { value: valorJSON, actualizado: new Date().toISOString() });
+  },
 };
