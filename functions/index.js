@@ -231,6 +231,7 @@ exports.generarFacturaPDF = functions
  * ventas, retiros, caja) a la colección "backups", con la fecha como ID.
  */
 const NEGOCIOS_IDS = ["colegio", "egresados", "clubes", "dtf", "complejo"];
+const OTROS_DOCS_IDS = ["iva-compras", "iva-proveedores", "iva-ventas-manuales"]; // Libro IVA
 
 exports.backupDiario = functions.pubsub
   .schedule("0 16 * * *")
@@ -240,6 +241,10 @@ exports.backupDiario = functions.pubsub
     const datos = {};
     for (const id of NEGOCIOS_IDS) {
       const snap = await db.collection("posData").doc("negocio:" + id).get();
+      if (snap.exists) datos[id] = snap.data().value;
+    }
+    for (const id of OTROS_DOCS_IDS) {
+      const snap = await db.collection("posData").doc(id).get();
       if (snap.exists) datos[id] = snap.data().value;
     }
     const fecha = new Date().toLocaleDateString("sv-SE", { timeZone: "America/Argentina/Buenos_Aires" }); // YYYY-MM-DD
