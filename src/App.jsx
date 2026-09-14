@@ -431,6 +431,7 @@ export default function App() {
       return;
     }
     setRestaurando(true);
+    const DOCS_LIBRO_IVA = ["iva-compras", "iva-proveedores", "iva-ventas-manuales"];
     try {
       // 1) Guardar backup de seguridad de cómo está todo ahora mismo, antes de tocar nada.
       const datosActuales = {};
@@ -438,13 +439,22 @@ export default function App() {
         const val = await backupsApi.leerNegocioActual(n.id);
         if (val) datosActuales[n.id] = val;
       }
+      for (const docId of DOCS_LIBRO_IVA) {
+        const val = await backupsApi.leerDocActual(docId);
+        if (val) datosActuales[docId] = val;
+      }
       const idSeguridad = "pre-restore-" + Date.now();
       await backupsApi.guardar(idSeguridad, datosActuales, "seguridad-antes-de-restaurar");
 
-      // 2) Restaurar cada negocio con los datos del backup elegido.
+      // 2) Restaurar cada negocio (y los documentos del Libro IVA, si el
+      // backup elegido los tiene) con los datos del backup elegido.
       const entradas = Object.entries(backupARestaurar.datos || {});
-      for (const [negId, val] of entradas) {
-        await backupsApi.restaurarNegocio(negId, val);
+      for (const [clave, val] of entradas) {
+        if (DOCS_LIBRO_IVA.includes(clave)) {
+          await backupsApi.restaurarDoc(clave, val);
+        } else {
+          await backupsApi.restaurarNegocio(clave, val);
+        }
       }
 
       alert(
@@ -3281,7 +3291,7 @@ export default function App() {
             {!backupARestaurar ? (
               <>
                 <p className="text-xs text-black/40 mb-3">
-                  Se guarda una copia automática todos los días a las 16hs, con los datos de todos los negocios (productos, ventas, retiros y caja).
+                  Se guarda una copia automática todos los días a las 16hs, con los datos de todos los negocios (productos, ventas, retiros y caja) y del Libro IVA (compras, proveedores y ventas cargadas a mano).
                 </p>
                 {cargandoBackups ? (
                   <p className="text-sm text-black/40 py-6 text-center">Cargando...</p>
