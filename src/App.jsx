@@ -244,6 +244,7 @@ export default function App() {
   const [errorTalle, setErrorTalle] = useState("");
   const [categoriaFiltro, setCategoriaFiltro] = useState("todos");
   const [busquedaProducto, setBusquedaProducto] = useState("");
+  const [busquedaStock, setBusquedaStock] = useState("");
   const [talleElegido, setTalleElegido] = useState({});
   const [vistaTotales, setVistaTotales] = useState("hoy");
   const [fechaFiltro, setFechaFiltro] = useState(todayKey());
@@ -2218,6 +2219,14 @@ export default function App() {
               </div>
             </div>
 
+            <input
+              type="text"
+              placeholder="Buscar producto por nombre o SKU..."
+              value={busquedaStock}
+              onChange={(e) => setBusquedaStock(e.target.value)}
+              className="no-print w-full px-3 py-2 rounded-lg border border-black/15 text-sm mb-4"
+            />
+
             {listaStockBajo.length > 0 && (
               <button
                 onClick={() => setVerStockBajo(true)}
@@ -2231,7 +2240,13 @@ export default function App() {
             )}
 
             <div className="space-y-2 mb-6">
-              {negocioData.productos.map((p) => {
+              {negocioData.productos
+                .filter((p) => {
+                  const q = busquedaStock.trim().toLowerCase();
+                  if (!q) return true;
+                  return (p.nombre || "").toLowerCase().includes(q) || (p.sku || "").toLowerCase().includes(q);
+                })
+                .map((p) => {
                 const cat = CATEGORIAS.find((c) => c.id === p.categoria);
                 const expandido = productoExpandidoId === p.id;
                 return (
@@ -2446,6 +2461,14 @@ export default function App() {
               {negocioData.productos.length === 0 && (
                 <p className="text-sm text-black/40 text-center py-6">Todavía no cargaste productos para este negocio.</p>
               )}
+              {negocioData.productos.length > 0 &&
+                negocioData.productos.filter((p) => {
+                  const q = busquedaStock.trim().toLowerCase();
+                  if (!q) return true;
+                  return (p.nombre || "").toLowerCase().includes(q) || (p.sku || "").toLowerCase().includes(q);
+                }).length === 0 && (
+                  <p className="text-sm text-black/40 text-center py-6">No encontramos productos con esa búsqueda.</p>
+                )}
             </div>
 
 
