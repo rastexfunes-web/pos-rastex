@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import {
   Store, Package, BarChart3, Plus, Minus, Trash2, Banknote, CreditCard,
   ArrowLeftRight, ChevronDown, Pencil, X, Check, Wallet, QrCode, LogOut, Building2, Printer,
-  Download, MessageCircle, Receipt, RefreshCw,
+  Download, MessageCircle, Receipt, RefreshCw, Copy, ClipboardCheck,
 } from "lucide-react";
 import { storage, loginConPin, logout, functionsInstance, backupsApi } from "./firebase.js";
 import { httpsCallable } from "firebase/functions";
@@ -255,6 +255,7 @@ export default function App() {
   const [fechaFiltroColegio, setFechaFiltroColegio] = useState(todayKey());
   const [fechaDesdeColegio, setFechaDesdeColegio] = useState("");
   const [fechaHastaColegio, setFechaHastaColegio] = useState("");
+  const [copiadoResumenColegio, setCopiadoResumenColegio] = useState(false);
   const [verComision, setVerComision] = useState(false);
   const [verRetiros, setVerRetiros] = useState(false);
   const [verStockBajo, setVerStockBajo] = useState(false);
@@ -1424,6 +1425,43 @@ export default function App() {
     return "Histórico (todo)";
   }
 
+  function generarResumenColegioTexto() {
+    const lineas = [];
+    lineas.push(`Resumen de ventas — Cuenta Colegio (${negocio.nombre})`);
+    lineas.push(`Período: ${tituloPeriodoColegio()}`);
+    lineas.push("");
+    if (ventasCuentaColegioFiltrada.length === 0) {
+      lineas.push("No hay ventas a Cuenta Colegio en este período.");
+    } else {
+      ventasCuentaColegioFiltrada
+        .slice()
+        .sort((a, b) => a.fecha - b.fecha)
+        .forEach((v) => {
+          const fecha = new Date(v.fecha).toLocaleDateString("es-AR");
+          const items = v.items.map((i) => `${i.cantidad}x ${i.nombre}`).join(", ");
+          lineas.push(`${fecha} — ${items} — ${money(v.total)}`);
+        });
+    }
+    lineas.push("");
+    lineas.push(
+      `Total a cobrar: ${money(totalCuentaColegioFiltrado)} (${ventasCuentaColegioFiltrada.length} venta${
+        ventasCuentaColegioFiltrada.length === 1 ? "" : "s"
+      })`
+    );
+    return lineas.join("\n");
+  }
+
+  async function copiarResumenColegio() {
+    const texto = generarResumenColegioTexto();
+    try {
+      await navigator.clipboard.writeText(texto);
+      setCopiadoResumenColegio(true);
+      setTimeout(() => setCopiadoResumenColegio(false), 2500);
+    } catch (e) {
+      window.prompt("No se pudo copiar automáticamente. Copiá el texto de acá:", texto);
+    }
+  }
+
   if (!usuario) {
     return <LoginScreen onLogin={iniciarSesion} />;
   }
@@ -2478,12 +2516,26 @@ export default function App() {
           <div>
             <div className="flex items-center justify-between mb-4">
               <h1 className="text-xl font-bold">Cuenta Colegio — {negocio.nombre}</h1>
-              <button
-                onClick={() => window.print()}
-                className="no-print flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-black/15 text-xs font-medium text-black/60 hover:bg-black/5"
-              >
-                <Printer size={14} /> Imprimir
-              </button>
+              <div className="no-print flex items-center gap-2">
+                <button
+                  onClick={copiarResumenColegio}
+                  className={
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium " +
+                    (copiadoResumenColegio
+                      ? "border-green-300 bg-green-50 text-green-700"
+                      : "border-black/15 text-black/60 hover:bg-black/5")
+                  }
+                >
+                  {copiadoResumenColegio ? <ClipboardCheck size={14} /> : <Copy size={14} />}
+                  {copiadoResumenColegio ? "¡Copiado!" : "Copiar resumen para mail"}
+                </button>
+                <button
+                  onClick={() => window.print()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-black/15 text-xs font-medium text-black/60 hover:bg-black/5"
+                >
+                  <Printer size={14} /> Imprimir
+                </button>
+              </div>
             </div>
 
             <div className="no-print flex flex-wrap items-center gap-2 mb-4">
