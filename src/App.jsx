@@ -149,6 +149,7 @@ function cargarNegocioData(id) {
     if (res) {
       const parsed = JSON.parse(res.value);
       return {
+        ...parsed, // conserva cualquier otro campo guardado (ej. alquileres)
         productos: parsed.productos || seedProductos(id),
         ventas: parsed.ventas || [],
         retiros: parsed.retiros || [],
