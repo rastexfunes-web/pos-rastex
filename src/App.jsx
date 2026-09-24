@@ -39,6 +39,20 @@ const PAGOS = [
 
 const UMBRAL_STOCK_BAJO = 5;
 
+const MESES_ALQUILER = [
+  { num: 2, nombre: "Febrero" },
+  { num: 3, nombre: "Marzo" },
+  { num: 4, nombre: "Abril" },
+  { num: 5, nombre: "Mayo" },
+  { num: 6, nombre: "Junio" },
+  { num: 7, nombre: "Julio" },
+  { num: 8, nombre: "Agosto" },
+  { num: 9, nombre: "Septiembre" },
+  { num: 10, nombre: "Octubre" },
+  { num: 11, nombre: "Noviembre" },
+  { num: 12, nombre: "Diciembre" },
+];
+
 const TABS = [
   { id: "venta", label: "Vender", icon: Store },
   { id: "stock", label: "Stock", icon: Package },
@@ -256,6 +270,7 @@ export default function App() {
   const [fechaDesdeColegio, setFechaDesdeColegio] = useState("");
   const [fechaHastaColegio, setFechaHastaColegio] = useState("");
   const [copiadoResumenColegio, setCopiadoResumenColegio] = useState(false);
+  const [anioAlquiler, setAnioAlquiler] = useState(new Date().getFullYear());
   const [verComision, setVerComision] = useState(false);
   const [verRetiros, setVerRetiros] = useState(false);
   const [verStockBajo, setVerStockBajo] = useState(false);
@@ -1413,6 +1428,26 @@ export default function App() {
     if (fechaDesde) return "Informe desde el " + formatFecha(fechaDesde);
     if (fechaHasta) return "Informe hasta el " + formatFecha(fechaHasta);
     return "Informe histórico";
+  }
+
+  // ---- Alquiler mensual al colegio (febrero a diciembre) ----
+  const alquileresAnio = (negocioData.alquileres && negocioData.alquileres[anioAlquiler]) || {};
+  const mesesAlquilerPagados = MESES_ALQUILER.filter((m) => alquileresAnio[m.num]).length;
+
+  function toggleAlquiler(mesNum) {
+    const mes = MESES_ALQUILER.find((m) => m.num === mesNum);
+    const yaPagado = !!alquileresAnio[mesNum];
+    if (yaPagado) {
+      const ok = window.confirm("¿Desmarcar el pago del alquiler de " + mes.nombre + " " + anioAlquiler + "?");
+      if (!ok) return;
+    }
+    const nuevoAnio = { ...alquileresAnio };
+    if (yaPagado) delete nuevoAnio[mesNum];
+    else nuevoAnio[mesNum] = { fecha: new Date().toISOString() };
+    persist({
+      ...negocioData,
+      alquileres: { ...(negocioData.alquileres || {}), [anioAlquiler]: nuevoAnio },
+    });
   }
 
   function tituloPeriodoColegio() {
@@ -2598,6 +2633,66 @@ export default function App() {
                   )}
                 </div>
               )}
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-black/5 p-4 mb-6">
+              <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+                <div>
+                  <h2 className="font-bold text-sm">Pago del alquiler</h2>
+                  <p className="text-xs text-black/40">
+                    {mesesAlquilerPagados} de {MESES_ALQUILER.length} meses pagos · tildá cada mes cuando lo pagues
+                  </p>
+                </div>
+                <div className="flex items-center gap-1 text-sm">
+                  <button
+                    onClick={() => setAnioAlquiler((a) => a - 1)}
+                    className="no-print w-7 h-7 rounded hover:bg-black/5 flex items-center justify-center text-black/50"
+                    title="Año anterior"
+                  >
+                    ‹
+                  </button>
+                  <span className="font-semibold w-12 text-center">{anioAlquiler}</span>
+                  <button
+                    onClick={() => setAnioAlquiler((a) => a + 1)}
+                    className="no-print w-7 h-7 rounded hover:bg-black/5 flex items-center justify-center text-black/50"
+                    title="Año siguiente"
+                  >
+                    ›
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                {MESES_ALQUILER.map((m) => {
+                  const pago = alquileresAnio[m.num];
+                  return (
+                    <button
+                      key={m.num}
+                      onClick={() => toggleAlquiler(m.num)}
+                      className={
+                        "flex items-center gap-2 px-3 py-2 rounded-lg border text-left text-sm transition " +
+                        (pago
+                          ? "border-green-300 bg-green-50 text-green-800"
+                          : "border-black/10 hover:bg-black/5 text-black/70")
+                      }
+                    >
+                      <span
+                        className={
+                          "w-5 h-5 rounded border flex items-center justify-center shrink-0 " +
+                          (pago ? "bg-green-600 border-green-600 text-white" : "border-black/25 bg-white")
+                        }
+                      >
+                        {pago && <Check size={13} />}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block font-medium leading-tight">{m.nombre}</span>
+                        <span className="block text-[11px] leading-tight opacity-70">
+                          {pago ? "Pagado " + new Date(pago.fecha).toLocaleDateString("es-AR") : "Pendiente"}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 flex items-center justify-between">
