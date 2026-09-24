@@ -58,6 +58,7 @@ const TABS = [
   { id: "stock", label: "Stock", icon: Package },
   { id: "informes", label: "Informes", icon: BarChart3 },
   { id: "cuentacolegio", label: "Cuenta Colegio", icon: Building2 },
+  { id: "ctaluciana", label: "Cta. Cte. Luciana", icon: Wallet },
 ];
 
 const USUARIOS_POR_UID = {
@@ -272,6 +273,9 @@ export default function App() {
   const [fechaHastaColegio, setFechaHastaColegio] = useState("");
   const [copiadoResumenColegio, setCopiadoResumenColegio] = useState(false);
   const [anioAlquiler, setAnioAlquiler] = useState(new Date().getFullYear());
+  const [movLuciana, setMovLuciana] = useState({ tipo: "pago", monto: "", concepto: "", fecha: todayKey(), deCaja: false });
+  const [errorMovLuciana, setErrorMovLuciana] = useState("");
+  const [mesComision, setMesComision] = useState(todayKey().slice(0, 7));
   const [verComision, setVerComision] = useState(false);
   const [verRetiros, setVerRetiros] = useState(false);
   const [verStockBajo, setVerStockBajo] = useState(false);
@@ -320,7 +324,7 @@ export default function App() {
   const tabsVisibles =
     usuario && usuario.rol === "empleado"
       ? TABS.filter((t) => t.id === "venta")
-      : TABS.filter((t) => t.id !== "cuentacolegio" || negocioId === "colegio");
+      : TABS.filter((t) => (t.id !== "cuentacolegio" && t.id !== "ctaluciana") || negocioId === "colegio");
 
   function iniciarSesion(u) {
     setUsuario(u);
@@ -372,7 +376,7 @@ export default function App() {
     setVerStockBajo(false);
     setRemitoVenta(null);
     setConfirmarReinicio(false);
-    if (tab === "cuentacolegio" && negocioId !== "colegio") {
+    if ((tab === "cuentacolegio" || tab === "ctaluciana") && negocioId !== "colegio") {
       setTab("venta");
     }
     cargarNegocioData(negocioId)
@@ -1429,6 +1433,121 @@ export default function App() {
     if (fechaDesde) return "Informe desde el " + formatFecha(fechaDesde);
     if (fechaHasta) return "Informe hasta el " + formatFecha(fechaHasta);
     return "Informe histórico";
+  }
+
+  // ---- Cuenta corriente de Luciana ----
+  // "favor" = lo que se le debe (sueldo, comisión); "pago" y "retiro" = lo que ya cobró.
+  const movimientosLuciana = negocioData.ctaLuciana || [];
+  const movimientosLucianaConSaldo = useMemo(() => {
+    const orden = [...movimientosLuciana].sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0));
+    let saldo = 0;
+    return orden
+      .map((m) => {
+        saldo += m.tipo === "favor" ? m.monto : -m.monto;
+        return { ...m, saldo };
+      })
+      .reverse();
+  }, [movimientosLuciana]);
+  const totalesLuciana = useMemo(() => {
+    const t = { favor: 0, pago: 0, retiro: 0 };
+    movimientosLuciana.forEach((m) => {
+      t[m.tipo] = (t[m.tipo] || 0) + m.monto;
+    });
+    return { ...t, saldo: t.favor - t.pago - t.retiro };
+  }, [movimientosLuciana]);
+
+  function comisionDelMes(mesKey) {
+    const [anio, mes] = mesKey.split("-").map(Number);
+    const mapaCategoria = {};
+    negocioData.productos.forEach((p) => {
+      mapaCategoria[p.id] = p.categoria;
+    });
+    let total = 0;
+    negocioData.ventas.forEach((v) => {
+      const f = new Date(v.fecha);
+      if (f.getFullYear() !== anio || f.getMonth() + 1 !== mes) return;
+      v.items.forEach((i) => {
+        if (mapaCategoria[i.id] === "uniforme") {
+          total += i.precio * i.cantidad * (1 - (v.descuentoPct || 0) / 100);
+        }
+      });
+    });
+    return Math.round(total * 0.05 * 100) / 100;
+  }
+
+  function nombreMes(mesKey) {
+    const [anio, mes] = mesKey.split("-").map(Number);
+    const n = new Date(anio, mes - 1, 1).toLocaleDateString("es-AR", { month: "long" });
+    return n.charAt(0).toUpperCase() + n.slice(1) + " " + anio;
+  }
+
+  function guardarMovimientosLuciana(nuevos, extra = {}) {
+    persist({ ...negocioData, ...extra, ctaLuciana: nuevos });
+  }
+
+  function agregarMovimientoLuciana() {
+    const monto = Number(String(movLuciana.monto).replace(",", "."));
+    if (!movLuciana.monto || isNaN(monto) || monto <= 0) {
+      setErrorMovLuciana("Ingresá un monto válido.");
+      return;
+    }
+    if (!movLuciana.fecha) {
+      setErrorMovLuciana("Elegí una fecha.");
+      return;
+    }
+    const conceptoDefault = { favor: "Sueldo", pago: "Pago", retiro: "Retiro / adelanto" }[movLuciana.tipo];
+    const concepto = movLuciana.concepto.trim() || conceptoDefault;
+    const extra = {};
+    const sacaDeCaja = movLuciana.tipo !== "favor" && movLuciana.deCaja;
+    if (sacaDeCaja) {
+      if (!caja.abierta) {
+        setErrorMovLuciana("La caja está cerrada: abrila o destildá \"Sale del efectivo de la caja\".");
+        return;
+      }
+      if (monto > efectivoDisponible) {
+        setErrorMovLuciana("No hay tanto efectivo en caja (" + money(efectivoDisponible) + ").");
+        return;
+      }
+      extra.retiros = [
+        { id: "r-" + Date.now(), monto, motivo: "Luciana — " + concepto, fecha: new Date().toISOString() },
+        ...(negocioData.retiros || []),
+      ];
+    }
+    const hoy = todayKey();
+    const fecha = movLuciana.fecha === hoy ? new Date().toISOString() : movLuciana.fecha + "T12:00:00";
+    const mov = { id: "l-" + Date.now(), tipo: movLuciana.tipo, monto, concepto, fecha, deCaja: sacaDeCaja };
+    guardarMovimientosLuciana([mov, ...movimientosLuciana], extra);
+    setMovLuciana({ tipo: movLuciana.tipo, monto: "", concepto: "", fecha: todayKey(), deCaja: false });
+    setErrorMovLuciana("");
+  }
+
+  function cargarComisionLuciana() {
+    const monto = comisionDelMes(mesComision);
+    const concepto = "Comisión 5% uniformes — " + nombreMes(mesComision);
+    if (monto <= 0) {
+      alert("No hay ventas de uniformes en " + nombreMes(mesComision) + ".");
+      return;
+    }
+    const yaCargada = movimientosLuciana.some((m) => m.concepto === concepto);
+    const ok = window.confirm(
+      (yaCargada ? "⚠️ La comisión de " + nombreMes(mesComision) + " YA está cargada.\n\n" : "") +
+        "¿Cargar " + money(monto) + " a favor de Luciana por la comisión de " + nombreMes(mesComision) + "?"
+    );
+    if (!ok) return;
+    const [anio, mes] = mesComision.split("-").map(Number);
+    const ultimoDia = new Date(anio, mes, 0).getDate();
+    const fechaMov = mesComision === todayKey().slice(0, 7) ? new Date().toISOString() : mesComision + "-" + String(ultimoDia).padStart(2, "0") + "T12:00:00";
+    const mov = { id: "l-" + Date.now(), tipo: "favor", monto, concepto, fecha: fechaMov };
+    guardarMovimientosLuciana([mov, ...movimientosLuciana]);
+  }
+
+  function borrarMovimientoLuciana(m) {
+    const ok = window.confirm(
+      "¿Borrar este movimiento?\n\n" + m.concepto + " — " + money(m.monto) +
+        (m.deCaja ? "\n\nOjo: el retiro de caja que generó NO se borra (si hace falta, borralo desde Informes)." : "")
+    );
+    if (!ok) return;
+    guardarMovimientosLuciana(movimientosLuciana.filter((x) => x.id !== m.id));
   }
 
   // ---- Alquiler mensual al colegio (febrero a diciembre) ----
@@ -2547,6 +2666,164 @@ export default function App() {
 
 
             <p className="text-xs text-black/40 mt-3">El stock se descuenta solo cada vez que confirmás una venta en "Vender".</p>
+          </div>
+        ) : tab === "ctaluciana" && usuario.rol === "dueno" ? (
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h1 className="text-xl font-bold">Cuenta corriente — Luciana</h1>
+              <button
+                onClick={() => window.print()}
+                className="no-print flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-black/15 text-xs font-medium text-black/60 hover:bg-black/5"
+              >
+                <Printer size={14} /> Imprimir
+              </button>
+            </div>
+
+            <div
+              className={
+                "rounded-xl p-4 mb-4 border flex items-center justify-between " +
+                (totalesLuciana.saldo > 0
+                  ? "bg-amber-50 border-amber-200"
+                  : totalesLuciana.saldo < 0
+                  ? "bg-red-50 border-red-200"
+                  : "bg-green-50 border-green-200")
+              }
+            >
+              <div>
+                <p className="font-semibold text-sm">
+                  {totalesLuciana.saldo > 0
+                    ? "Le debés a Luciana"
+                    : totalesLuciana.saldo < 0
+                    ? "Luciana te debe (cobró de más)"
+                    : "Cuenta saldada"}
+                </p>
+                <p className="text-xs text-black/50">
+                  A favor {money(totalesLuciana.favor)} · Pagos {money(totalesLuciana.pago)} · Retiros {money(totalesLuciana.retiro)}
+                </p>
+              </div>
+              <span className="font-mono font-bold text-2xl">{money(Math.abs(totalesLuciana.saldo))}</span>
+            </div>
+
+            <div className="no-print bg-white rounded-xl shadow-sm border border-black/5 p-4 mb-4">
+              <h2 className="font-bold text-sm mb-3">Nuevo movimiento</h2>
+              <div className="flex rounded-lg bg-black/5 p-0.5 text-xs mb-3 w-fit">
+                {[
+                  { id: "pago", label: "Pago a Luciana" },
+                  { id: "retiro", label: "Retiro / adelanto" },
+                  { id: "favor", label: "A favor (sueldo, extra)" },
+                ].map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setMovLuciana({ ...movLuciana, tipo: t.id })}
+                    className={
+                      "px-3 py-1.5 rounded-md font-medium whitespace-nowrap " +
+                      (movLuciana.tipo === t.id ? "bg-white shadow-sm text-blue-600" : "text-black/50")
+                    }
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                <input
+                  type="date"
+                  value={movLuciana.fecha}
+                  max={todayKey()}
+                  onChange={(e) => setMovLuciana({ ...movLuciana, fecha: e.target.value })}
+                  className="px-3 py-2 rounded-lg border border-black/15 text-sm"
+                />
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  placeholder="Monto"
+                  value={movLuciana.monto}
+                  onChange={(e) => setMovLuciana({ ...movLuciana, monto: e.target.value })}
+                  className="px-3 py-2 rounded-lg border border-black/15 text-sm"
+                />
+                <input
+                  type="text"
+                  placeholder="Concepto (opcional)"
+                  value={movLuciana.concepto}
+                  onChange={(e) => setMovLuciana({ ...movLuciana, concepto: e.target.value })}
+                  onKeyDown={(e) => e.key === "Enter" && agregarMovimientoLuciana()}
+                  className="px-3 py-2 rounded-lg border border-black/15 text-sm"
+                />
+                <button
+                  onClick={agregarMovimientoLuciana}
+                  className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+                >
+                  <Plus size={14} /> Agregar
+                </button>
+              </div>
+              {movLuciana.tipo !== "favor" && (
+                <label className="flex items-center gap-2 text-xs text-black/60 mt-2">
+                  <input
+                    type="checkbox"
+                    checked={movLuciana.deCaja}
+                    onChange={(e) => setMovLuciana({ ...movLuciana, deCaja: e.target.checked })}
+                  />
+                  Sale del efectivo de la caja de hoy (lo registra también como retiro de caja)
+                </label>
+              )}
+              {errorMovLuciana && <p className="text-xs text-red-600 mt-2">{errorMovLuciana}</p>}
+
+              <div className="border-t border-black/5 mt-4 pt-3 flex flex-wrap items-center gap-2 text-sm">
+                <span className="text-black/60">Comisión 5% uniformes de</span>
+                <input
+                  type="month"
+                  value={mesComision}
+                  max={todayKey().slice(0, 7)}
+                  onChange={(e) => setMesComision(e.target.value)}
+                  className="px-2 py-1.5 rounded-lg border border-black/15 text-sm"
+                />
+                <span className="font-mono font-semibold">{money(comisionDelMes(mesComision))}</span>
+                <button
+                  onClick={cargarComisionLuciana}
+                  className="px-3 py-1.5 rounded-lg border border-violet-300 bg-violet-50 text-violet-800 text-xs font-medium hover:bg-violet-100"
+                >
+                  Cargar a favor
+                </button>
+              </div>
+            </div>
+
+            <h2 className="font-bold mb-2 text-sm">Movimientos</h2>
+            <div className="bg-white rounded-xl shadow-sm border border-black/5 divide-y divide-black/5">
+              {movimientosLucianaConSaldo.length === 0 ? (
+                <p className="p-4 text-sm text-black/40">Todavía no hay movimientos.</p>
+              ) : (
+                movimientosLucianaConSaldo.map((m) => (
+                  <div key={m.id} className="p-3 flex items-center justify-between gap-3 text-sm">
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{m.concepto}</p>
+                      <p className="text-xs text-black/40">
+                        {new Date(m.fecha).toLocaleDateString("es-AR")} ·{" "}
+                        {m.tipo === "favor" ? "A favor" : m.tipo === "pago" ? "Pago" : "Retiro"}
+                        {m.deCaja && " · salió de caja"}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <div className="text-right">
+                        <p className={"font-mono font-semibold " + (m.tipo === "favor" ? "text-green-700" : "text-red-600")}>
+                          {m.tipo === "favor" ? "+" : "−"}
+                          {money(m.monto)}
+                        </p>
+                        <p className="text-[11px] text-black/40 font-mono">saldo {money(m.saldo)}</p>
+                      </div>
+                      <button
+                        onClick={() => borrarMovimientoLuciana(m)}
+                        className="no-print w-7 h-7 rounded hover:bg-red-50 flex items-center justify-center text-black/30 hover:text-red-600"
+                        title="Borrar"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            <p className="text-xs text-black/40 mt-3">
+              Saldo positivo = lo que todavía le debés. Los movimientos "A favor" suman; pagos y retiros restan.
+            </p>
           </div>
         ) : tab === "cuentacolegio" ? (
           <div>
