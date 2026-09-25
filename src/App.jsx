@@ -39,6 +39,16 @@ const PAGOS = [
 
 const UMBRAL_STOCK_BAJO = 5;
 
+const DOC_EXTRAS_COLEGIO = "colegio-extras";
+
+function normalizarExtras(parsed) {
+  return {
+    ...(parsed || {}),
+    ctaLuciana: (parsed && parsed.ctaLuciana) || [],
+    alquileres: (parsed && parsed.alquileres) || {},
+  };
+}
+
 const MESES_ALQUILER = [
   { num: 2, nombre: "Febrero" },
   { num: 3, nombre: "Marzo" },
@@ -276,6 +286,12 @@ export default function App() {
   const [movLuciana, setMovLuciana] = useState({ tipo: "pago", monto: "", concepto: "", fecha: todayKey(), deCaja: false });
   const [errorMovLuciana, setErrorMovLuciana] = useState("");
   const [mesComision, setMesComision] = useState(todayKey().slice(0, 7));
+  // Cuenta de Luciana y alquileres viven en un documento APARTE ("colegio-extras")
+  // que solo usa Marcelo. Así ninguna venta (de ningún dispositivo, ni con
+  // versiones viejas abiertas) puede pisarlos.
+  const [extrasColegio, setExtrasColegio] = useState({ ctaLuciana: [], alquileres: {} });
+  const [extrasCargado, setExtrasCargado] = useState(false);
+  const [recuperacion, setRecuperacion] = useState(null); // null | "cargando" | [fuentes]
   const [verComision, setVerComision] = useState(false);
   const [verRetiros, setVerRetiros] = useState(false);
   const [verStockBajo, setVerStockBajo] = useState(false);
@@ -453,7 +469,7 @@ export default function App() {
       return;
     }
     setRestaurando(true);
-    const DOCS_LIBRO_IVA = ["iva-compras", "iva-proveedores", "iva-ventas-manuales"];
+    const DOCS_LIBRO_IVA = ["iva-compras", "iva-proveedores", "iva-ventas-manuales", DOC_EXTRAS_COLEGIO];
     try {
       // 1) Guardar backup de seguridad de cómo está todo ahora mismo, antes de tocar nada.
       const datosActuales = {};
@@ -492,6 +508,35 @@ export default function App() {
     } finally {
       setRestaurando(false);
     }
+  }
+
+  function cargarExtras() {
+    return storage.get(DOC_EXTRAS_COLEGIO).then((res) => {
+      setExtrasColegio(normalizarExtras(res ? JSON.parse(res.value) : null));
+      setExtrasCargado(true);
+    });
+  }
+
+  useEffect(() => {
+    if (!usuario || usuario.rol !== "dueno" || negocioId !== "colegio") return;
+    cargarExtras().catch((e) => console.error("No se pudo cargar colegio-extras:", e));
+    const intervalo = setInterval(() => {
+      cargarExtras().catch((e) => console.error("Auto-actualización de extras falló:", e));
+    }, 20000);
+    return () => clearInterval(intervalo);
+  }, [usuario, negocioId]);
+
+  function persistExtras(next) {
+    if (!extrasCargado) {
+      alert("Todavía no se cargaron los datos de la cuenta (conexión). Esperá unos segundos y probá de nuevo.");
+      return false;
+    }
+    setExtrasColegio(next);
+    storage.set(DOC_EXTRAS_COLEGIO, JSON.stringify(next)).catch((e) => {
+      console.error("No se pudo guardar colegio-extras:", e);
+      alert("⚠️ No se pudo guardar este cambio (falló la conexión). Revisá tu conexión y volvé a intentar.");
+    });
+    return true;
   }
 
   useEffect(() => {
@@ -1437,7 +1482,7 @@ export default function App() {
 
   // ---- Cuenta corriente de Luciana ----
   // "favor" = lo que se le debe (sueldo, comisión); "pago" y "retiro" = lo que ya cobró.
-  const movimientosLuciana = negocioData.ctaLuciana || [];
+  const movimientosLuciana = extrasColegio.ctaLuciana || [];
   const movimientosLucianaConSaldo = useMemo(() => {
     const orden = [...movimientosLuciana].sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0));
     let saldo = 0;
@@ -1482,7 +1527,75 @@ export default function App() {
   }
 
   function guardarMovimientosLuciana(nuevos, extra = {}) {
-    persist({ ...negocioData, ...extra, ctaLuciana: nuevos });
+    const ok = persistExtras({ ...extrasColegio, ctaLuciana: nuevos });
+    if (ok && extra.retiros) persist({ ...negocioData, retiros: extra.retiros });
+    return ok;
+  }
+
+  // ---- Recuperar datos perdidos desde copias de seguridad ----
+  function extraerExtrasDe(valorJSON) {
+    try {
+      const p = typeof valorJSON === "string" ? JSON.parse(valorJSON) : valorJSON;
+      return { ctaLuciana: (p && p.ctaLuciana) || [], alquileres: (p && p.alquileres) || {} };
+    } catch (e) {
+      return { ctaLuciana: [], alquileres: {} };
+    }
+  }
+  function contarAlquileres(alq) {
+    return Object.values(alq || {}).reduce((acc, anio) => acc + Object.keys(anio || {}).length, 0);
+  }
+
+  async function buscarRecuperacion() {
+    setRecuperacion("cargando");
+    try {
+      const fuentes = [];
+      const actual = await backupsApi.leerNegocioActual("colegio");
+      if (actual) fuentes.push({ id: "actual", titulo: "Datos actuales de Colegio (versión anterior)", ...extraerExtrasDe(actual) });
+      const lista = await backupsApi.listar();
+      lista.forEach((b) => {
+        const datos = b.datos || {};
+        const deNegocio = datos.colegio ? extraerExtrasDe(datos.colegio) : { ctaLuciana: [], alquileres: {} };
+        const deExtras = datos[DOC_EXTRAS_COLEGIO] ? extraerExtrasDe(datos[DOC_EXTRAS_COLEGIO]) : { ctaLuciana: [], alquileres: {} };
+        const ctaLuciana = [...deNegocio.ctaLuciana, ...deExtras.ctaLuciana.filter((m) => !deNegocio.ctaLuciana.some((x) => x.id === m.id))];
+        const alquileres = { ...deNegocio.alquileres };
+        Object.entries(deExtras.alquileres).forEach(([anio, meses]) => {
+          alquileres[anio] = { ...(alquileres[anio] || {}), ...meses };
+        });
+        fuentes.push({ id: b.id, titulo: "Copia " + (b.fecha || b.id) + (b.tipo ? " (" + b.tipo + ")" : ""), ctaLuciana, alquileres });
+      });
+      setRecuperacion(fuentes.filter((f) => f.ctaLuciana.length > 0 || contarAlquileres(f.alquileres) > 0));
+    } catch (e) {
+      alert("No se pudieron leer las copias: " + (e.message || String(e)));
+      setRecuperacion(null);
+    }
+  }
+
+  function recuperarDe(fuente) {
+    const idsActuales = new Set(movimientosLuciana.map((m) => m.id));
+    const nuevosMov = fuente.ctaLuciana.filter((m) => !idsActuales.has(m.id));
+    const alquileres = { ...(extrasColegio.alquileres || {}) };
+    let nuevosMeses = 0;
+    Object.entries(fuente.alquileres || {}).forEach(([anio, meses]) => {
+      const actualAnio = { ...(alquileres[anio] || {}) };
+      Object.entries(meses || {}).forEach(([mes, val]) => {
+        if (!actualAnio[mes]) {
+          actualAnio[mes] = val;
+          nuevosMeses++;
+        }
+      });
+      alquileres[anio] = actualAnio;
+    });
+    if (nuevosMov.length === 0 && nuevosMeses === 0) {
+      alert("Todo lo de esta copia ya está cargado. No hay nada nuevo para recuperar.");
+      return;
+    }
+    const ok = window.confirm(
+      "Se van a agregar " + nuevosMov.length + " movimiento(s) de Luciana y " + nuevosMeses +
+        " mes(es) de alquiler que faltan.\n\nNo se borra ni se pisa nada de lo que ya tenés. ¿Continuar?"
+    );
+    if (!ok) return;
+    persistExtras({ ...extrasColegio, ctaLuciana: [...nuevosMov, ...movimientosLuciana], alquileres });
+    setRecuperacion(null);
   }
 
   function agregarMovimientoLuciana() {
@@ -1516,7 +1629,7 @@ export default function App() {
     const hoy = todayKey();
     const fecha = movLuciana.fecha === hoy ? new Date().toISOString() : movLuciana.fecha + "T12:00:00";
     const mov = { id: "l-" + Date.now(), tipo: movLuciana.tipo, monto, concepto, fecha, deCaja: sacaDeCaja };
-    guardarMovimientosLuciana([mov, ...movimientosLuciana], extra);
+    if (!guardarMovimientosLuciana([mov, ...movimientosLuciana], extra)) return;
     setMovLuciana({ tipo: movLuciana.tipo, monto: "", concepto: "", fecha: todayKey(), deCaja: false });
     setErrorMovLuciana("");
   }
@@ -1551,7 +1664,7 @@ export default function App() {
   }
 
   // ---- Alquiler mensual al colegio (febrero a diciembre) ----
-  const alquileresAnio = (negocioData.alquileres && negocioData.alquileres[anioAlquiler]) || {};
+  const alquileresAnio = (extrasColegio.alquileres && extrasColegio.alquileres[anioAlquiler]) || {};
   const mesesAlquilerPagados = MESES_ALQUILER.filter((m) => alquileresAnio[m.num]).length;
 
   function toggleAlquiler(mesNum) {
@@ -1564,9 +1677,9 @@ export default function App() {
     const nuevoAnio = { ...alquileresAnio };
     if (yaPagado) delete nuevoAnio[mesNum];
     else nuevoAnio[mesNum] = { fecha: new Date().toISOString() };
-    persist({
-      ...negocioData,
-      alquileres: { ...(negocioData.alquileres || {}), [anioAlquiler]: nuevoAnio },
+    persistExtras({
+      ...extrasColegio,
+      alquileres: { ...(extrasColegio.alquileres || {}), [anioAlquiler]: nuevoAnio },
     });
   }
 
@@ -2824,6 +2937,49 @@ export default function App() {
             <p className="text-xs text-black/40 mt-3">
               Saldo positivo = lo que todavía le debés. Los movimientos "A favor" suman; pagos y retiros restan.
             </p>
+
+            <div className="no-print bg-white rounded-xl shadow-sm border border-black/5 p-4 mt-6">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div>
+                  <h2 className="font-bold text-sm">Recuperar datos borrados</h2>
+                  <p className="text-xs text-black/40">
+                    Busca movimientos de Luciana y meses de alquiler en las copias de seguridad y agrega los que falten. No borra nada.
+                  </p>
+                </div>
+                <button
+                  onClick={buscarRecuperacion}
+                  disabled={recuperacion === "cargando"}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-black/15 text-xs font-medium text-black/60 hover:bg-black/5 disabled:opacity-50"
+                >
+                  <RefreshCw size={14} className={recuperacion === "cargando" ? "animate-spin" : ""} />
+                  {recuperacion === "cargando" ? "Buscando..." : "Buscar en copias"}
+                </button>
+              </div>
+              {Array.isArray(recuperacion) && (
+                <div className="mt-3 divide-y divide-black/5 border-t border-black/5">
+                  {recuperacion.length === 0 ? (
+                    <p className="pt-3 text-sm text-black/40">No se encontraron datos de Luciana ni alquileres en ninguna copia.</p>
+                  ) : (
+                    recuperacion.map((f) => (
+                      <div key={f.id} className="py-2 flex items-center justify-between gap-2 text-sm">
+                        <div>
+                          <p className="font-medium">{f.titulo}</p>
+                          <p className="text-xs text-black/40">
+                            {f.ctaLuciana.length} movimiento(s) de Luciana · {contarAlquileres(f.alquileres)} mes(es) de alquiler
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => recuperarDe(f)}
+                          className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 shrink-0"
+                        >
+                          Recuperar
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         ) : tab === "cuentacolegio" ? (
           <div>
