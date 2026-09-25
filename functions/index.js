@@ -231,7 +231,7 @@ exports.generarFacturaPDF = functions
  * ventas, retiros, caja) a la colección "backups", con la fecha como ID.
  */
 const NEGOCIOS_IDS = ["colegio", "egresados", "clubes", "dtf", "complejo"];
-const OTROS_DOCS_IDS = ["iva-compras", "iva-proveedores", "iva-ventas-manuales"]; // Libro IVA
+const OTROS_DOCS_IDS = ["iva-compras", "iva-proveedores", "iva-ventas-manuales", "colegio-extras"]; // Libro IVA + cta Luciana y alquileres
 
 exports.backupDiario = functions.pubsub
   .schedule("0 16 * * *")
