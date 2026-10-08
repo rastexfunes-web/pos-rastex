@@ -46,6 +46,7 @@ function normalizarExtras(parsed) {
     ...(parsed || {}),
     ctaLuciana: (parsed && parsed.ctaLuciana) || [],
     alquileres: (parsed && parsed.alquileres) || {},
+    pagosColegio: (parsed && parsed.pagosColegio) || [],
   };
 }
 
@@ -282,6 +283,9 @@ export default function App() {
   const [fechaDesdeColegio, setFechaDesdeColegio] = useState("");
   const [fechaHastaColegio, setFechaHastaColegio] = useState("");
   const [copiadoResumenColegio, setCopiadoResumenColegio] = useState(false);
+  // Cuenta corriente del Colegio: pagos que va haciendo la dirección
+  const PAGO_COLEGIO_VACIO = { abierto: false, id: null, monto: "", fecha: "", medio: "transferencia", nota: "" };
+  const [formPagoColegio, setFormPagoColegio] = useState(PAGO_COLEGIO_VACIO);
   const [anioAlquiler, setAnioAlquiler] = useState(new Date().getFullYear());
   const [movLuciana, setMovLuciana] = useState({ tipo: "pago", monto: "", concepto: "", fecha: todayKey(), deCaja: false });
   const [errorMovLuciana, setErrorMovLuciana] = useState("");
@@ -289,7 +293,7 @@ export default function App() {
   // Cuenta de Luciana y alquileres viven en un documento APARTE ("colegio-extras")
   // que solo usa Marcelo. Así ninguna venta (de ningún dispositivo, ni con
   // versiones viejas abiertas) puede pisarlos.
-  const [extrasColegio, setExtrasColegio] = useState({ ctaLuciana: [], alquileres: {} });
+  const [extrasColegio, setExtrasColegio] = useState({ ctaLuciana: [], alquileres: {}, pagosColegio: [] });
   const [extrasCargado, setExtrasCargado] = useState(false);
   const [recuperacion, setRecuperacion] = useState(null); // null | "cargando" | [fuentes]
   const [verComision, setVerComision] = useState(false);
@@ -1693,8 +1697,73 @@ export default function App() {
     return "Histórico (todo)";
   }
 
+  // ---- Cuenta corriente del Colegio (solo dueño: vive en el doc "colegio-extras") ----
+  const MEDIOS_PAGO_COLEGIO = [
+    { id: "transferencia", label: "Transferencia" },
+    { id: "efectivo", label: "Efectivo" },
+    { id: "cheque", label: "Cheque" },
+    { id: "otro", label: "Otro" },
+  ];
+  const pagosColegio = (extrasColegio.pagosColegio || [])
+    .slice()
+    .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+  const totalPagosColegio = pagosColegio.reduce((acc, p) => acc + (Number(p.monto) || 0), 0);
+  const saldoColegio = totalCuentaColegioTodas - totalPagosColegio; // >0 = el colegio te debe
+  const pagosColegioFiltrados = filtrarPorPeriodo(pagosColegio, vistaColegio, fechaFiltroColegio, fechaDesdeColegio, fechaHastaColegio);
+  const totalPagosColegioFiltrados = pagosColegioFiltrados.reduce((acc, p) => acc + (Number(p.monto) || 0), 0);
+  const nombreMedioColegio = (id) => (MEDIOS_PAGO_COLEGIO.find((m) => m.id === id) || { label: id }).label;
+
+  function abrirFormPagoColegio(pago) {
+    if (pago) {
+      setFormPagoColegio({
+        abierto: true,
+        id: pago.id,
+        monto: String(pago.monto),
+        fecha: String(pago.fecha).slice(0, 10),
+        medio: pago.medio || "transferencia",
+        nota: pago.nota || "",
+      });
+    } else {
+      setFormPagoColegio({ ...PAGO_COLEGIO_VACIO, abierto: true, fecha: todayKey() });
+    }
+  }
+
+  function guardarPagoColegio() {
+    const monto = Number(String(formPagoColegio.monto).replace(",", "."));
+    if (!monto || monto <= 0) {
+      alert("Ingresá un monto mayor a 0.");
+      return;
+    }
+    if (!formPagoColegio.fecha) {
+      alert("Elegí la fecha del pago.");
+      return;
+    }
+    const fechaISO = new Date(formPagoColegio.fecha + "T12:00:00").toISOString();
+    const actuales = extrasColegio.pagosColegio || [];
+    let nuevos;
+    if (formPagoColegio.id) {
+      nuevos = actuales.map((p) =>
+        p.id === formPagoColegio.id
+          ? { ...p, monto, fecha: fechaISO, medio: formPagoColegio.medio, nota: formPagoColegio.nota.trim() }
+          : p
+      );
+    } else {
+      nuevos = [
+        { id: "pc-" + Date.now(), monto, fecha: fechaISO, medio: formPagoColegio.medio, nota: formPagoColegio.nota.trim() },
+        ...actuales,
+      ];
+    }
+    if (persistExtras({ ...extrasColegio, pagosColegio: nuevos })) setFormPagoColegio(PAGO_COLEGIO_VACIO);
+  }
+
+  function borrarPagoColegio(pago) {
+    if (!window.confirm("¿Borrar el pago de " + money(pago.monto) + " del " + formatFecha(String(pago.fecha).slice(0, 10)) + "?")) return;
+    persistExtras({ ...extrasColegio, pagosColegio: (extrasColegio.pagosColegio || []).filter((p) => p.id !== pago.id) });
+  }
+
   function generarResumenColegioTexto() {
     const lineas = [];
+    const conCuentaCorriente = usuario.rol === "dueno" && extrasCargado;
     lineas.push(`Resumen de ventas — Cuenta Colegio (${negocio.nombre})`);
     lineas.push(`Período: ${tituloPeriodoColegio()}`);
     lineas.push("");
@@ -1703,7 +1772,7 @@ export default function App() {
     } else {
       ventasCuentaColegioFiltrada
         .slice()
-        .sort((a, b) => a.fecha - b.fecha)
+        .sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime())
         .forEach((v) => {
           const fecha = new Date(v.fecha).toLocaleDateString("es-AR");
           const items = v.items.map((i) => `${i.cantidad}x ${i.nombre}`).join(", ");
@@ -1712,10 +1781,29 @@ export default function App() {
     }
     lineas.push("");
     lineas.push(
-      `Total a cobrar: ${money(totalCuentaColegioFiltrado)} (${ventasCuentaColegioFiltrada.length} venta${
+      `Total del período: ${money(totalCuentaColegioFiltrado)} (${ventasCuentaColegioFiltrada.length} venta${
         ventasCuentaColegioFiltrada.length === 1 ? "" : "s"
       })`
     );
+    if (conCuentaCorriente) {
+      if (pagosColegioFiltrados.length > 0) {
+        lineas.push("");
+        lineas.push("Pagos recibidos en el período:");
+        pagosColegioFiltrados
+          .slice()
+          .sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime())
+          .forEach((p) => {
+            lineas.push(
+              `${new Date(p.fecha).toLocaleDateString("es-AR")} — ${nombreMedioColegio(p.medio)}${p.nota ? " (" + p.nota + ")" : ""} — -${money(p.monto)}`
+            );
+          });
+        lineas.push(`Total pagado en el período: ${money(totalPagosColegioFiltrados)}`);
+      }
+      lineas.push("");
+      lineas.push(`Total vendido a la fecha: ${money(totalCuentaColegioTodas)}`);
+      lineas.push(`Total pagado a la fecha: ${money(totalPagosColegio)}`);
+      lineas.push(`SALDO A PAGAR: ${money(saldoColegio)}`);
+    }
     return lineas.join("\n");
   }
 
@@ -3128,6 +3216,135 @@ export default function App() {
                 })}
               </div>
             </div>
+
+            {usuario.rol === "dueno" && (
+              <div className="bg-white rounded-xl shadow-sm border border-black/5 p-4 mb-6">
+                <div className="flex items-start justify-between gap-2 flex-wrap mb-3">
+                  <div>
+                    <h2 className="font-bold text-sm">Cuenta corriente</h2>
+                    <p className="text-xs text-black/40">Todo lo vendido a Cuenta Colegio menos los pagos que fue haciendo la dirección.</p>
+                  </div>
+                  {!formPagoColegio.abierto && (
+                    <button
+                      onClick={() => abrirFormPagoColegio(null)}
+                      disabled={!extrasCargado}
+                      className="no-print flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-medium hover:bg-green-700 disabled:opacity-50"
+                    >
+                      <Plus size={14} /> Registrar pago
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 mb-3">
+                  <div className="rounded-lg bg-black/5 p-3">
+                    <p className="text-[11px] text-black/50">Vendido (total)</p>
+                    <p className="font-mono font-semibold text-sm">{money(totalCuentaColegioTodas)}</p>
+                  </div>
+                  <div className="rounded-lg bg-green-50 p-3">
+                    <p className="text-[11px] text-green-700/70">Pagado</p>
+                    <p className="font-mono font-semibold text-sm text-green-700">{money(totalPagosColegio)}</p>
+                  </div>
+                  <div className={"rounded-lg p-3 " + (saldoColegio > 0 ? "bg-amber-50" : "bg-green-50")}>
+                    <p className={"text-[11px] " + (saldoColegio > 0 ? "text-amber-700/70" : "text-green-700/70")}>
+                      {saldoColegio > 0 ? "Saldo pendiente" : saldoColegio < 0 ? "Saldo a favor del colegio" : "Al día"}
+                    </p>
+                    <p className={"font-mono font-bold text-base " + (saldoColegio > 0 ? "text-amber-800" : "text-green-700")}>
+                      {money(Math.abs(saldoColegio))}
+                    </p>
+                  </div>
+                </div>
+
+                {formPagoColegio.abierto && (
+                  <div className="no-print rounded-lg border border-black/10 p-3 mb-3 bg-black/[0.02]">
+                    <p className="text-xs font-semibold mb-2">{formPagoColegio.id ? "Editar pago" : "Nuevo pago del colegio"}</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+                      <label className="text-xs text-black/50">
+                        Monto
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          value={formPagoColegio.monto}
+                          onChange={(e) => setFormPagoColegio({ ...formPagoColegio, monto: e.target.value })}
+                          placeholder="0"
+                          className="mt-1 w-full px-3 py-1.5 rounded-lg border border-black/15 text-sm text-black"
+                        />
+                      </label>
+                      <label className="text-xs text-black/50">
+                        Fecha
+                        <input
+                          type="date"
+                          value={formPagoColegio.fecha}
+                          max={todayKey()}
+                          onChange={(e) => setFormPagoColegio({ ...formPagoColegio, fecha: e.target.value })}
+                          className="mt-1 w-full px-3 py-1.5 rounded-lg border border-black/15 text-sm text-black"
+                        />
+                      </label>
+                      <label className="text-xs text-black/50">
+                        Medio
+                        <select
+                          value={formPagoColegio.medio}
+                          onChange={(e) => setFormPagoColegio({ ...formPagoColegio, medio: e.target.value })}
+                          className="mt-1 w-full px-3 py-1.5 rounded-lg border border-black/15 text-sm text-black bg-white"
+                        >
+                          {MEDIOS_PAGO_COLEGIO.map((m) => (
+                            <option key={m.id} value={m.id}>{m.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="text-xs text-black/50">
+                        Nota (opcional)
+                        <input
+                          type="text"
+                          value={formPagoColegio.nota}
+                          onChange={(e) => setFormPagoColegio({ ...formPagoColegio, nota: e.target.value })}
+                          placeholder="Ej: pago de septiembre"
+                          className="mt-1 w-full px-3 py-1.5 rounded-lg border border-black/15 text-sm text-black"
+                        />
+                      </label>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={guardarPagoColegio} className="px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-medium hover:bg-green-700">
+                        {formPagoColegio.id ? "Guardar cambios" : "Asentar pago"}
+                      </button>
+                      <button onClick={() => setFormPagoColegio(PAGO_COLEGIO_VACIO)} className="px-3 py-1.5 rounded-lg border border-black/15 text-xs font-medium text-black/60 hover:bg-black/5">
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <p className="text-xs font-semibold mb-1">Pagos recibidos — {tituloPeriodoColegio()}</p>
+                <div className="divide-y divide-black/5 rounded-lg border border-black/5">
+                  {pagosColegioFiltrados.length === 0 ? (
+                    <p className="p-3 text-xs text-black/40">No hay pagos asentados en este período.</p>
+                  ) : (
+                    pagosColegioFiltrados.map((p) => (
+                      <div key={p.id} className="p-3 flex items-center justify-between text-sm gap-2">
+                        <div className="min-w-0">
+                          <p className="font-medium">
+                            {nombreMedioColegio(p.medio)}
+                            {p.nota && <span className="text-black/50 font-normal"> · {p.nota}</span>}
+                          </p>
+                          <p className="text-xs text-black/40">{new Date(p.fecha).toLocaleDateString("es-AR")}</p>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <span className="font-mono font-semibold text-green-700">-{money(p.monto)}</span>
+                          <button onClick={() => abrirFormPagoColegio(p)} className="no-print w-7 h-7 rounded hover:bg-black/5 flex items-center justify-center text-black/40" title="Editar pago">
+                            <Pencil size={14} />
+                          </button>
+                          <button onClick={() => borrarPagoColegio(p)} className="no-print w-7 h-7 rounded hover:bg-red-50 flex items-center justify-center text-red-400" title="Borrar pago">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+                {pagosColegioFiltrados.length > 0 && (
+                  <p className="text-xs text-black/50 text-right mt-1">Pagado en el período: <span className="font-mono font-semibold">{money(totalPagosColegioFiltrados)}</span></p>
+                )}
+              </div>
+            )}
 
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 flex items-center justify-between">
               <div>
