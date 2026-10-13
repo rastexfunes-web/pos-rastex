@@ -3348,12 +3348,32 @@ export default function App() {
 
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 flex items-center justify-between">
               <div>
-                <p className="font-semibold text-sm text-amber-900">Total a cobrarle a dirección — {tituloPeriodoColegio()}</p>
-                <p className="text-xs text-amber-700/70">
-                  {ventasCuentaColegioFiltrada.length} venta{ventasCuentaColegioFiltrada.length === 1 ? "" : "s"}
-                </p>
+                {usuario.rol === "dueno" && extrasCargado ? (
+                  <>
+                    <p className="font-semibold text-sm text-amber-900">
+                      {saldoColegio < 0 ? "Saldo a favor del colegio" : "Saldo a cobrarle a dirección"} (ya descontados los pagos)
+                    </p>
+                    <p className="text-xs text-amber-700/70">
+                      {tituloPeriodoColegio()}: {ventasCuentaColegioFiltrada.length} venta{ventasCuentaColegioFiltrada.length === 1 ? "" : "s"} por{" "}
+                      {money(totalCuentaColegioFiltrado)}
+                      {totalPagosColegioFiltrados > 0 ? " · pagos " + money(totalPagosColegioFiltrados) : ""}
+                    </p>
+                    <p className="text-xs text-amber-700/70">
+                      Acumulado: vendido {money(totalCuentaColegioTodas)} − pagado {money(totalPagosColegio)}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-semibold text-sm text-amber-900">Total a cobrarle a dirección — {tituloPeriodoColegio()}</p>
+                    <p className="text-xs text-amber-700/70">
+                      {ventasCuentaColegioFiltrada.length} venta{ventasCuentaColegioFiltrada.length === 1 ? "" : "s"}
+                    </p>
+                  </>
+                )}
               </div>
-              <span className="font-mono font-bold text-2xl text-amber-800">{money(totalCuentaColegioFiltrado)}</span>
+              <span className="font-mono font-bold text-2xl text-amber-800">
+                {usuario.rol === "dueno" && extrasCargado ? money(Math.abs(saldoColegio)) : money(totalCuentaColegioFiltrado)}
+              </span>
             </div>
 
             <h2 className="font-bold mb-2 text-sm">Detalle de ventas a Cuenta Colegio</h2>
@@ -3505,11 +3525,17 @@ export default function App() {
                   <div className="text-left">
                     <p className="font-semibold text-sm text-amber-900">Cuenta Colegio (a cobrarle a dirección)</p>
                     <p className="text-xs text-amber-700/70">
-                      {ventasCuentaColegioTodas.length} venta{ventasCuentaColegioTodas.length === 1 ? "" : "s"} · no está sumado en los totales de arriba
+                      {ventasCuentaColegioTodas.length} venta{ventasCuentaColegioTodas.length === 1 ? "" : "s"}
+                      {usuario.rol === "dueno" && extrasCargado
+                        ? " por " + money(totalCuentaColegioTodas) + " − pagado " + money(totalPagosColegio)
+                        : ""}{" "}
+                      · no está sumado en los totales de arriba
                     </p>
                   </div>
                 </div>
-                <span className="font-mono font-bold text-lg text-amber-800">{money(totalCuentaColegioTodas)}</span>
+                <span className="font-mono font-bold text-lg text-amber-800">
+                  {usuario.rol === "dueno" && extrasCargado ? money(Math.abs(saldoColegio)) : money(totalCuentaColegioTodas)}
+                </span>
               </button>
             )}
 
