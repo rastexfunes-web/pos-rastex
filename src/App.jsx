@@ -121,6 +121,20 @@ function seedProductos(negocioId) {
   return base[negocioId] || [];
 }
 
+// Saldo en pesos de un abono (los abonos viejos "por copias" no tienen saldo)
+function saldoAbono(a) {
+  return typeof a.saldo === "number" ? a.saldo : 0;
+}
+
+// El abono sirve para fotocopias y librería, NO para uniformes.
+// Devuelve los ítems del carrito que son uniformes (un producto sin categoría cuenta como uniforme, igual que en Stock).
+function itemsUniformeEnCarrito(carrito, productos) {
+  return carrito.filter((i) => {
+    const p = productos.find((x) => x.id === i.id);
+    return p && (p.categoria || "uniforme") === "uniforme";
+  });
+}
+
 function money(n) {
   return n.toLocaleString("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 });
 }
@@ -287,17 +301,17 @@ export default function App() {
   // Cuenta corriente del Colegio: pagos que va haciendo la dirección
   const PAGO_COLEGIO_VACIO = { abierto: false, id: null, monto: "", fecha: "", medio: "transferencia", nota: "" };
   const [formPagoColegio, setFormPagoColegio] = useState(PAGO_COLEGIO_VACIO);
-  // Abonos de fotocopias (pack de copias a nombre de una persona, se van descontando)
-  const ABONO_FORM_VACIO = { nombre: "", apellido: "", telefono: "", pack: 100, precio: "", medio: "efectivo" };
+  // Abonos de fotocopias: saldo en pesos a nombre de una persona; se descuenta al elegir "Abono" como medio de pago
+  const ABONO_FORM_VACIO = { nombre: "", apellido: "", telefono: "", monto: "", medio: "efectivo" };
   const [formAbono, setFormAbono] = useState(ABONO_FORM_VACIO);
   const [busquedaAbono, setBusquedaAbono] = useState("");
   const [filtroAbono, setFiltroAbono] = useState("conSaldo");
-  const [abonoAbiertoId, setAbonoAbiertoId] = useState(null);
   const [verHistorialAbonoId, setVerHistorialAbonoId] = useState(null);
-  const [descuentoAbono, setDescuentoAbono] = useState({}); // { [abonoId]: "texto" }
-  const [recargaAbono, setRecargaAbono] = useState(null); // { id, pack, precio, medio }
+  const [recargaAbono, setRecargaAbono] = useState(null); // { id, monto, medio }
   const [editandoAbono, setEditandoAbono] = useState(null); // { id, nombre, apellido, telefono }
-  const [editandoPreciosAbono, setEditandoPreciosAbono] = useState(null); // { 50:"", 100:"", 200:"" }
+  const [ajusteAbono, setAjusteAbono] = useState(null); // { id, monto, motivo }
+  const [abonoSelId, setAbonoSelId] = useState(null); // abono elegido en Vender
+  const [busquedaAbonoVenta, setBusquedaAbonoVenta] = useState("");
   const [anioAlquiler, setAnioAlquiler] = useState(new Date().getFullYear());
   const [movLuciana, setMovLuciana] = useState({ tipo: "pago", monto: "", concepto: "", fecha: todayKey(), deCaja: false });
   const [errorMovLuciana, setErrorMovLuciana] = useState("");
@@ -656,6 +670,33 @@ export default function App() {
       return;
     }
 
+    // Pago con abono: validar ANTES de facturar para no emitir una factura si no alcanza el saldo
+    const pagaConAbono = !tipoPagoForzado && !pagoMultiple && pagoSel === "abono";
+    let abonoUsado = null;
+    if (pagaConAbono) {
+      abonoUsado = (negocioData.abonos || []).find((a) => a.id === abonoSelId) || null;
+      if (negocioId !== "colegio" || !abonoUsado) {
+        alert("Elegí de qué abono descontar (nombre y apellido).");
+        return;
+      }
+      const uniformes = itemsUniformeEnCarrito(carrito, negocioData.productos);
+      if (uniformes.length > 0) {
+        alert(
+          "El abono sirve para fotocopias y librería, no para uniformes. Sacá del carrito: " +
+            uniformes.map((i) => i.nombre).join(", ") +
+            " (o cobralos aparte con otro medio de pago)."
+        );
+        return;
+      }
+      if (saldoAbono(abonoUsado) < totalConDescuento) {
+        alert(
+          "El abono de " + abonoUsado.apellido + ", " + abonoUsado.nombre + " tiene " + money(saldoAbono(abonoUsado)) +
+            " y la venta es de " + money(totalConDescuento) + ". Recargá el abono o elegí otro medio de pago."
+        );
+        return;
+      }
+    }
+
     let datosFactura = null;
     if (facturar) {
       setFacturando(true);
@@ -709,6 +750,8 @@ export default function App() {
       total: totalConDescuento,
       tipoPago: tipoPagoForzado || (pagoMultiple ? "mixto" : pagoSel),
       desglosePago,
+      abonoId: abonoUsado ? abonoUsado.id : null,
+      abonoNombre: abonoUsado ? abonoUsado.apellido + ", " + abonoUsado.nombre : null,
       facturada: facturar,
       cae: datosFactura ? datosFactura.cae : null,
       caeVencimiento: datosFactura ? datosFactura.caeVencimiento : null,
@@ -720,7 +763,32 @@ export default function App() {
       cuitCliente: facturar && tipoClienteFactura === "responsable_inscripto" ? cuitClienteFactura.replace(/\D/g, "") : null,
       nombreCliente: facturar && tipoClienteFactura === "consumidor_final" && nombreClienteFactura.trim() ? nombreClienteFactura.trim() : null,
     };
-    persist({ ...negocioData, productos: nuevosProductos, ventas: [venta, ...negocioData.ventas] });
+    const detalleConsumo = carrito.map((i) => i.cantidad + "x " + i.nombre).join(", ");
+    const abonosActualizados = abonoUsado
+      ? (negocioData.abonos || []).map((a) =>
+          a.id === abonoUsado.id
+            ? {
+                ...a,
+                saldo: saldoAbono(a) - venta.total,
+                movimientos: [
+                  { id: "m-" + Date.now(), fecha: venta.fecha, tipo: "consumo", monto: venta.total, ventaId: venta.id, detalle: detalleConsumo, por: (usuario && usuario.nombre) || "" },
+                  ...(a.movimientos || []),
+                ],
+              }
+            : a
+        )
+      : negocioData.abonos;
+    persist({
+      ...negocioData,
+      productos: nuevosProductos,
+      ventas: [venta, ...negocioData.ventas],
+      ...(abonoUsado ? { abonos: abonosActualizados } : {}),
+    });
+    if (pagaConAbono) {
+      setPagoSel("efectivo");
+      setAbonoSelId(null);
+      setBusquedaAbonoVenta("");
+    }
     setCarrito([]);
     setDescuentoPct("");
     setRecargoPct("");
@@ -1200,7 +1268,7 @@ export default function App() {
   // Para el panel "Ventas del día": sin Cuenta Colegio, porque esas no se
   // cobran ese día (quedan a deber, se le factura aparte a la dirección) —
   // mismo criterio que ya se usa en Informes.
-  const ventasHoySinColegio = useMemo(() => ventasHoy.filter((v) => v.tipoPago !== "colegio"), [ventasHoy]);
+  const ventasHoySinColegio = useMemo(() => ventasHoy.filter((v) => v.tipoPago !== "colegio" && v.tipoPago !== "abono"), [ventasHoy]);
   const resumenHoySinColegio = useMemo(() => calcularResumenPago(ventasHoySinColegio), [ventasHoySinColegio]);
 
   function iniciarEdicionRetiro(r) {
@@ -1266,6 +1334,11 @@ export default function App() {
   function calcularResumenPago(ventas) {
     const r = { efectivo: 0, transferencia: 0, credito: 0, debito: 0, mercadopago: 0, colegio: 0, total: 0, cantidad: ventas.length };
     ventas.forEach((v) => {
+      // Compra pagada con abono: la plata ya entró cuando se cargó el abono, no se suma de nuevo
+      if (v.tipoPago === "abono") {
+        r.abono = (r.abono || 0) + v.total;
+        return;
+      }
       if (v.desglosePago) {
         Object.keys(v.desglosePago).forEach((k) => {
           r[k] = (r[k] || 0) + v.desglosePago[k];
@@ -1287,6 +1360,7 @@ export default function App() {
       return base + " · " + (PAGOS.find((p) => p.id === v.tipoPago)?.label || v.tipoPago);
     }
     if (v.tipoPago === "colegio") return "Cuenta Colegio";
+    if (v.tipoPago === "abono") return "Abono" + (v.abonoNombre ? " · " + v.abonoNombre : "");
     if (v.tipoPago === "mixto" && v.desglosePago) {
       return (
         "Pago múltiple (" +
@@ -1321,7 +1395,7 @@ export default function App() {
     if (v.recargoPct > 0) lineas.push("Recargo: " + v.recargoPct + "%");
     lineas.push("TOTAL: " + money(v.total));
     lineas.push("Medio de pago: " + labelPago(v));
-    lineas.push("Estado: " + (v.facturada ? "Facturada" : "Factura pendiente"));
+    lineas.push("Estado: " + (v.facturada ? "Facturada" : v.esCargaAbono ? "Carga de abono (se factura al consumir)" : "Factura pendiente"));
     if (v.cae) {
       lineas.push(labelTipoComprobante(v.tipoComprobante) + " — Pto. Vta: " + v.puntoVenta + " — Comprobante N° " + v.numeroComprobante);
       if (v.cuitCliente) lineas.push("CUIT cliente: " + v.cuitCliente);
@@ -1424,10 +1498,10 @@ export default function App() {
   }
 
   const ventasVista = useMemo(() => {
-    const ventasSinColegio = negocioData.ventas.filter((v) => v.tipoPago !== "colegio");
+    const ventasSinColegio = negocioData.ventas.filter((v) => v.tipoPago !== "colegio" && v.tipoPago !== "abono");
     const porPeriodo = filtrarPorPeriodo(ventasSinColegio, vistaTotales, fechaFiltro, fechaDesde, fechaHasta);
     if (filtroFactura === "facturadas") return porPeriodo.filter((v) => v.facturada);
-    if (filtroFactura === "pendientes") return porPeriodo.filter((v) => !v.facturada);
+    if (filtroFactura === "pendientes") return porPeriodo.filter((v) => !v.facturada && !v.esCargaAbono);
     return porPeriodo;
   }, [negocioData.ventas, vistaTotales, fechaFiltro, fechaDesde, fechaHasta, filtroFactura]);
 
@@ -1830,42 +1904,55 @@ export default function App() {
     }
   }
 
-  // ---- Abonos de fotocopias ----
-  const PACKS_ABONO = [50, 100, 200];
-  const ABONO_POCAS_COPIAS = 20;
+  // ---- Abonos de fotocopias (saldo en pesos) ----
   const abonos = negocioData.abonos || [];
-  const preciosPacks = (negocioData.abonosConfig && negocioData.abonosConfig.precios) || {};
   const nombreCompletoAbono = (a) => (a.apellido + ", " + a.nombre).trim();
+  const quienAbono = () => (usuario && usuario.nombre) || "";
 
   const abonosFiltrados = abonos
     .filter((a) => {
       const q = busquedaAbono.trim().toLowerCase();
-      if (q && !(a.nombre + " " + a.apellido + " " + (a.telefono || "")).toLowerCase().includes(q)) return false;
-      if (filtroAbono === "conSaldo") return a.copiasRestantes > 0;
-      if (filtroAbono === "agotados") return a.copiasRestantes <= 0;
+      if (q && !(a.nombre + " " + a.apellido + " " + a.apellido + " " + a.nombre + " " + (a.telefono || "")).toLowerCase().includes(q)) return false;
+      if (filtroAbono === "conSaldo") return saldoAbono(a) > 0;
+      if (filtroAbono === "sinSaldo") return saldoAbono(a) <= 0;
       return true;
     })
     .sort((a, b) => nombreCompletoAbono(a).localeCompare(nombreCompletoAbono(b), "es"));
-  const abonosConSaldoCant = abonos.filter((a) => a.copiasRestantes > 0).length;
-  const copiasPendientesTotal = abonos.reduce((acc, a) => acc + Math.max(0, a.copiasRestantes), 0);
+  const abonosConSaldoCant = abonos.filter((a) => saldoAbono(a) > 0).length;
+  const saldoTotalAbonos = abonos.reduce((acc, a) => acc + Math.max(0, saldoAbono(a)), 0);
 
-  function armarVentaAbono(pack, precio, medio, nombreCompleto) {
+  // Selección del abono en la pantalla Vender
+  const abonoSel = abonos.find((a) => a.id === abonoSelId) || null;
+  const abonosCoincidentesVenta = abonos
+    .filter((a) => {
+      if (saldoAbono(a) <= 0) return false;
+      const q = busquedaAbonoVenta.trim().toLowerCase();
+      if (!q) return true;
+      return (a.nombre + " " + a.apellido + " " + a.apellido + " " + a.nombre).toLowerCase().includes(q);
+    })
+    .sort((a, b) => nombreCompletoAbono(a).localeCompare(nombreCompletoAbono(b), "es"))
+    .slice(0, 6);
+  const uniformesConAbono = itemsUniformeEnCarrito(carrito, negocioData.productos);
+  const abonoBloqueaVenta =
+    !pagoMultiple && pagoSel === "abono" && (!abonoSel || saldoAbono(abonoSel) < totalConDescuento || uniformesConAbono.length > 0);
+
+  function armarVentaCargaAbono(monto, medio, nombreCompleto, esRecarga) {
     return {
       id: "v-" + Date.now(),
       fecha: new Date().toISOString(),
       items: [
         {
-          id: "abono-" + pack,
-          cartId: "abono-" + pack,
-          nombre: "Abono " + pack + " copias — " + nombreCompleto,
+          id: "abono-carga",
+          cartId: "abono-carga",
+          nombre: (esRecarga ? "Recarga de abono — " : "Abono de fotocopias — ") + nombreCompleto,
           cantidad: 1,
-          precio,
+          precio: monto,
         },
       ],
-      subtotal: precio,
+      subtotal: monto,
       descuentoPct: 0,
       recargoPct: 0,
-      total: precio,
+      total: monto,
       tipoPago: medio,
       desglosePago: null,
       facturada: false,
@@ -1878,125 +1965,92 @@ export default function App() {
       impIVA: null,
       cuitCliente: null,
       nombreCliente: null,
-      esAbono: true,
+      esCargaAbono: true,
     };
   }
 
-  function validarCobroAbono(precioTexto) {
+  function validarCargaAbono(montoTexto) {
     if (!caja.abierta) {
       alert("La caja está cerrada. Abrí la caja en la pestaña Vender para poder cobrar un abono.");
       return null;
     }
-    const precio = Number(String(precioTexto).replace(",", "."));
-    if (!precio || precio <= 0) {
-      alert("Ingresá el precio del abono.");
+    const monto = Number(String(montoTexto).replace(",", "."));
+    if (!monto || monto <= 0) {
+      alert("Ingresá el monto del abono en pesos.");
       return null;
     }
-    return precio;
+    return monto;
   }
 
-  function venderAbono() {
+  function crearAbono() {
     const nombre = formAbono.nombre.trim();
     const apellido = formAbono.apellido.trim();
     if (!nombre || !apellido) {
       alert("Cargá nombre y apellido.");
       return;
     }
-    const precio = validarCobroAbono(formAbono.precio || preciosPacks[formAbono.pack] || "");
-    if (precio === null) return;
-    const mismo = abonos.find(
-      (a) => a.nombre.toLowerCase() === nombre.toLowerCase() && a.apellido.toLowerCase() === apellido.toLowerCase() && a.copiasRestantes > 0
-    );
+    const monto = validarCargaAbono(formAbono.monto);
+    if (monto === null) return;
+    const existente = abonos.find((a) => a.nombre.toLowerCase() === nombre.toLowerCase() && a.apellido.toLowerCase() === apellido.toLowerCase());
     if (
-      mismo &&
+      existente &&
       !window.confirm(
-        apellido + ", " + nombre + " ya tiene un abono con " + mismo.copiasRestantes + " copias. ¿Crear uno nuevo igual? (Para sumarle copias al mismo, usá \"Recargar\".)"
+        apellido + ", " + nombre + " ya tiene un abono (saldo " + money(saldoAbono(existente)) + "). Si querés sumarle plata, usá Recargar en su tarjeta. ¿Crear uno nuevo igual?"
       )
     )
       return;
-    const pack = Number(formAbono.pack);
-    const venta = armarVentaAbono(pack, precio, formAbono.medio, apellido + ", " + nombre);
+    const venta = armarVentaCargaAbono(monto, formAbono.medio, apellido + ", " + nombre, false);
     const abono = {
       id: "ab-" + Date.now(),
       nombre,
       apellido,
       telefono: formAbono.telefono.trim(),
-      copiasTotales: pack,
-      copiasRestantes: pack,
+      saldo: monto,
       fechaAlta: venta.fecha,
-      movimientos: [
-        { id: "m-" + Date.now(), fecha: venta.fecha, tipo: "alta", copias: pack, ventaId: venta.id, precio, por: (usuario && usuario.nombre) || "" },
-      ],
+      movimientos: [{ id: "m-" + Date.now(), fecha: venta.fecha, tipo: "carga", monto, ventaId: venta.id, por: quienAbono() }],
     };
-    persist({
-      ...negocioData,
-      ventas: [venta, ...negocioData.ventas],
-      abonos: [abono, ...abonos],
-      abonosConfig: { ...(negocioData.abonosConfig || {}), precios: { ...preciosPacks, [pack]: precio } },
-    });
+    persist({ ...negocioData, ventas: [venta, ...negocioData.ventas], abonos: [abono, ...abonos] });
     setFormAbono({ ...ABONO_FORM_VACIO, medio: formAbono.medio });
-    setAbonoAbiertoId(abono.id);
     setRemitoVenta(venta);
-  }
-
-  function descontarCopias(abono, cantidad) {
-    const n = Math.floor(Number(cantidad));
-    if (!n || n <= 0) {
-      alert("Ingresá cuántas copias descontar.");
-      return;
-    }
-    if (n > abono.copiasRestantes) {
-      alert(nombreCompletoAbono(abono) + " solo tiene " + abono.copiasRestantes + " copias disponibles.");
-      return;
-    }
-    const mov = { id: "m-" + Date.now(), fecha: new Date().toISOString(), tipo: "descuento", copias: n, por: (usuario && usuario.nombre) || "" };
-    persist({
-      ...negocioData,
-      abonos: abonos.map((a) =>
-        a.id === abono.id ? { ...a, copiasRestantes: a.copiasRestantes - n, movimientos: [mov, ...(a.movimientos || [])] } : a
-      ),
-    });
-    setDescuentoAbono((prev) => ({ ...prev, [abono.id]: "" }));
   }
 
   function confirmarRecargaAbono() {
     const r = recargaAbono;
     const abono = abonos.find((a) => a.id === r.id);
     if (!abono) return;
-    const precio = validarCobroAbono(r.precio);
-    if (precio === null) return;
-    const pack = Number(r.pack);
-    const venta = armarVentaAbono(pack, precio, r.medio, nombreCompletoAbono(abono) + " (recarga)");
-    const mov = { id: "m-" + Date.now(), fecha: venta.fecha, tipo: "recarga", copias: pack, ventaId: venta.id, precio, por: (usuario && usuario.nombre) || "" };
+    const monto = validarCargaAbono(r.monto);
+    if (monto === null) return;
+    const venta = armarVentaCargaAbono(monto, r.medio, nombreCompletoAbono(abono), true);
+    const mov = { id: "m-" + Date.now(), fecha: venta.fecha, tipo: "carga", monto, ventaId: venta.id, por: quienAbono() };
     persist({
       ...negocioData,
       ventas: [venta, ...negocioData.ventas],
-      abonos: abonos.map((a) =>
-        a.id === abono.id
-          ? { ...a, copiasRestantes: a.copiasRestantes + pack, copiasTotales: a.copiasTotales + pack, movimientos: [mov, ...(a.movimientos || [])] }
-          : a
-      ),
-      abonosConfig: { ...(negocioData.abonosConfig || {}), precios: { ...preciosPacks, [pack]: precio } },
+      abonos: abonos.map((a) => (a.id === abono.id ? { ...a, saldo: saldoAbono(a) + monto, movimientos: [mov, ...(a.movimientos || [])] } : a)),
     });
     setRecargaAbono(null);
     setRemitoVenta(venta);
   }
 
-  function anularDescuentoAbono(abono, mov) {
+  function confirmarAjusteAbono() {
     if (usuario.rol !== "dueno") return;
-    if (!window.confirm("¿Anular el descuento de " + mov.copias + " copias? Se las devolvemos al abono de " + nombreCompletoAbono(abono) + ".")) return;
+    const aj = ajusteAbono;
+    const monto = Number(String(aj.monto).replace(",", "."));
+    if (!monto) {
+      alert("Ingresá el monto del ajuste (positivo suma, negativo resta).");
+      return;
+    }
+    const abono = abonos.find((a) => a.id === aj.id);
+    if (!abono) return;
+    if (saldoAbono(abono) + monto < 0) {
+      alert("El ajuste dejaría el saldo en negativo.");
+      return;
+    }
+    const mov = { id: "m-" + Date.now(), fecha: new Date().toISOString(), tipo: "ajuste", monto, detalle: aj.motivo.trim(), por: quienAbono() };
     persist({
       ...negocioData,
-      abonos: abonos.map((a) =>
-        a.id === abono.id
-          ? {
-              ...a,
-              copiasRestantes: a.copiasRestantes + mov.copias,
-              movimientos: (a.movimientos || []).map((m) => (m.id === mov.id ? { ...m, anulado: true } : m)),
-            }
-          : a
-      ),
+      abonos: abonos.map((a) => (a.id === abono.id ? { ...a, saldo: saldoAbono(a) + monto, movimientos: [mov, ...(a.movimientos || [])] } : a)),
     });
+    setAjusteAbono(null);
   }
 
   function guardarEdicionAbono() {
@@ -2010,16 +2064,6 @@ export default function App() {
       abonos: abonos.map((a) => (a.id === e.id ? { ...a, nombre: e.nombre.trim(), apellido: e.apellido.trim(), telefono: e.telefono.trim() } : a)),
     });
     setEditandoAbono(null);
-  }
-
-  function guardarPreciosPacks() {
-    const nuevos = {};
-    PACKS_ABONO.forEach((p) => {
-      const v = Number(String(editandoPreciosAbono[p] || "").replace(",", "."));
-      if (v > 0) nuevos[p] = v;
-    });
-    persist({ ...negocioData, abonosConfig: { ...(negocioData.abonosConfig || {}), precios: nuevos } });
-    setEditandoPreciosAbono(null);
   }
 
   if (!usuario) {
@@ -2193,7 +2237,7 @@ export default function App() {
               <p className="font-bold text-base mb-1">TOTAL: {money(remitoVenta.total)}</p>
               <p className="mb-0.5">Medio de pago: {labelPago(remitoVenta)}</p>
               <p className={remitoVenta.facturada ? "text-green-700" : "text-black/50"}>
-                Estado: {remitoVenta.facturada ? "Facturada" : "Factura pendiente"}
+                Estado: {remitoVenta.facturada ? "Facturada" : remitoVenta.esCargaAbono ? "Carga de abono (se factura al consumir)" : "Factura pendiente"}
               </p>
               {remitoVenta.cae && (
                 <>
@@ -2618,6 +2662,18 @@ export default function App() {
                       {p.label}
                     </button>
                   ))}
+                  {negocioId === "colegio" && (
+                    <button
+                      onClick={() => setPagoSel("abono")}
+                      className={
+                        "flex flex-col items-center gap-1 py-2 rounded-lg text-xs font-medium border transition " +
+                        (pagoSel === "abono" ? "bg-blue-600 text-white border-blue-600" : "border-black/10 text-black/60 hover:border-black/30")
+                      }
+                    >
+                      <Copy size={15} />
+                      Abono
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="mb-3 space-y-1.5">
@@ -2645,6 +2701,62 @@ export default function App() {
                       {money(totalAsignadoMultiple)} / {money(totalConDescuento)}
                     </span>
                   </div>
+                </div>
+              )}
+
+              {!pagoMultiple && pagoSel === "abono" && negocioId === "colegio" && (
+                <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50/60 p-3">
+                  <p className="text-[11px] text-black/50 mb-2">El abono sirve para fotocopias y librería (no para uniformes).</p>
+                  {uniformesConAbono.length > 0 && (
+                    <p className="text-xs text-red-600 mb-2">
+                      Hay uniformes en el carrito ({uniformesConAbono.map((i) => i.nombre).join(", ")}). Sacalos o cobralos con otro medio de pago.
+                    </p>
+                  )}
+                  {abonoSel ? (
+                    <div>
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-semibold">{nombreCompletoAbono(abonoSel)}</p>
+                          <p className="text-xs text-black/50">Saldo: <span className="font-mono">{money(saldoAbono(abonoSel))}</span></p>
+                        </div>
+                        <button onClick={() => { setAbonoSelId(null); setBusquedaAbonoVenta(""); }} className="text-xs text-blue-600 hover:underline shrink-0">Cambiar</button>
+                      </div>
+                      {carrito.length > 0 &&
+                        (saldoAbono(abonoSel) >= totalConDescuento ? (
+                          <p className="text-xs text-green-700 mt-1">Después de esta compra le quedan <span className="font-mono font-semibold">{money(saldoAbono(abonoSel) - totalConDescuento)}</span>.</p>
+                        ) : (
+                          <p className="text-xs text-red-600 mt-1">
+                            No alcanza: faltan <span className="font-mono font-semibold">{money(totalConDescuento - saldoAbono(abonoSel))}</span>. Recargá el abono (pestaña Abonos) o usá otro medio de pago.
+                          </p>
+                        ))}
+                    </div>
+                  ) : (
+                    <>
+                      <input
+                        type="text"
+                        placeholder="Nombre y apellido del abono"
+                        value={busquedaAbonoVenta}
+                        onChange={(e) => setBusquedaAbonoVenta(e.target.value)}
+                        className="w-full px-3 py-1.5 rounded-lg border border-black/15 text-sm bg-white"
+                      />
+                      <div className="mt-2 space-y-1">
+                        {abonosCoincidentesVenta.length === 0 ? (
+                          <p className="text-xs text-black/40">No hay abonos con saldo{busquedaAbonoVenta.trim() ? " que coincidan" : ""}.</p>
+                        ) : (
+                          abonosCoincidentesVenta.map((a) => (
+                            <button
+                              key={a.id}
+                              onClick={() => setAbonoSelId(a.id)}
+                              className="w-full flex items-center justify-between px-3 py-1.5 rounded-lg bg-white border border-black/10 text-sm hover:border-blue-400"
+                            >
+                              <span>{nombreCompletoAbono(a)}</span>
+                              <span className="font-mono text-xs text-black/50">{money(saldoAbono(a))}</span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -2692,14 +2804,14 @@ export default function App() {
 
               <button
                 onClick={() => confirmarVenta(true)}
-                disabled={carrito.length === 0 || (pagoMultiple && !pagoMultipleValido) || facturando}
+                disabled={carrito.length === 0 || (pagoMultiple && !pagoMultipleValido) || facturando || abonoBloqueaVenta}
                 className="w-full py-2.5 rounded-lg bg-blue-600 text-white font-bold text-sm disabled:opacity-30 hover:brightness-110 transition mb-2"
               >
                 {facturando ? "Facturando en ARCA..." : "Facturar"}
               </button>
               <button
                 onClick={() => confirmarVenta(false)}
-                disabled={carrito.length === 0 || (pagoMultiple && !pagoMultipleValido)}
+                disabled={carrito.length === 0 || (pagoMultiple && !pagoMultipleValido) || abonoBloqueaVenta}
                 className="w-full py-2.5 rounded-lg border border-black/15 text-slate-800 font-semibold text-sm disabled:opacity-30 hover:bg-black/5 transition"
               >
                 Facturar luego
@@ -2796,140 +2908,56 @@ export default function App() {
           </div>
         ) : tab === "abonos" ? (
           <div>
-            <div className="flex items-start justify-between gap-2 flex-wrap mb-4">
-              <div>
-                <h1 className="text-xl font-bold">Abonos de fotocopias — {negocio.nombre}</h1>
-                <p className="text-xs text-black/40">
-                  {abonosConSaldoCant} abono{abonosConSaldoCant === 1 ? "" : "s"} con saldo · {copiasPendientesTotal} copias por entregar
-                </p>
-              </div>
-              {usuario.rol === "dueno" && !editandoPreciosAbono && (
-                <button
-                  onClick={() => setEditandoPreciosAbono({ 50: preciosPacks[50] || "", 100: preciosPacks[100] || "", 200: preciosPacks[200] || "" })}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-black/15 text-xs font-medium text-black/60 hover:bg-black/5"
-                >
-                  <Pencil size={14} /> Precios de los packs
-                </button>
-              )}
+            <div className="mb-4">
+              <h1 className="text-xl font-bold">Abonos de fotocopias — {negocio.nombre}</h1>
+              <p className="text-xs text-black/40">
+                {abonosConSaldoCant} abono{abonosConSaldoCant === 1 ? "" : "s"} con saldo · {money(saldoTotalAbonos)} cargados por consumir. Sirve para fotocopias y librería (no para uniformes): para usarlo, en Vender elegí "Abono" como medio de pago.
+              </p>
             </div>
 
-            {editandoPreciosAbono && (
-              <div className="bg-white rounded-xl shadow-sm border border-black/5 p-4 mb-4">
-                <p className="text-sm font-semibold mb-2">Precios de los packs</p>
-                <div className="grid grid-cols-3 gap-2 mb-3">
-                  {PACKS_ABONO.map((p) => (
-                    <label key={p} className="text-xs text-black/50">
-                      {p} copias
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        value={editandoPreciosAbono[p]}
-                        onChange={(e) => setEditandoPreciosAbono({ ...editandoPreciosAbono, [p]: e.target.value })}
-                        className="mt-1 w-full px-3 py-1.5 rounded-lg border border-black/15 text-sm font-mono text-black"
-                      />
-                    </label>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={guardarPreciosPacks} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700">Guardar precios</button>
-                  <button onClick={() => setEditandoPreciosAbono(null)} className="px-3 py-1.5 rounded-lg border border-black/15 text-xs font-medium text-black/60 hover:bg-black/5">Cancelar</button>
-                </div>
-              </div>
-            )}
-
             <div className="bg-white rounded-xl shadow-sm border border-black/5 p-4 mb-6">
-              <h2 className="font-bold text-sm mb-3">Vender un abono nuevo</h2>
+              <h2 className="font-bold text-sm mb-3">Cargar un abono nuevo</h2>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3">
-                <input
-                  type="text"
-                  placeholder="Nombre"
-                  value={formAbono.nombre}
-                  onChange={(e) => setFormAbono({ ...formAbono, nombre: e.target.value })}
-                  className="px-3 py-2 rounded-lg border border-black/15 text-sm"
-                />
-                <input
-                  type="text"
-                  placeholder="Apellido"
-                  value={formAbono.apellido}
-                  onChange={(e) => setFormAbono({ ...formAbono, apellido: e.target.value })}
-                  className="px-3 py-2 rounded-lg border border-black/15 text-sm"
-                />
-                <input
-                  type="tel"
-                  placeholder="Teléfono (opcional)"
-                  value={formAbono.telefono}
-                  onChange={(e) => setFormAbono({ ...formAbono, telefono: e.target.value })}
-                  className="px-3 py-2 rounded-lg border border-black/15 text-sm"
-                />
-              </div>
-              <div className="flex flex-wrap gap-2 mb-3">
-                {PACKS_ABONO.map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => setFormAbono({ ...formAbono, pack: p, precio: preciosPacks[p] ? String(preciosPacks[p]) : "" })}
-                    className={
-                      "px-4 py-2 rounded-lg border text-sm font-medium " +
-                      (Number(formAbono.pack) === p ? "bg-blue-600 border-blue-600 text-white" : "border-black/15 text-black/70 hover:bg-black/5")
-                    }
-                  >
-                    {p} copias
-                    {preciosPacks[p] ? <span className="block text-[11px] font-mono opacity-80">{money(preciosPacks[p])}</span> : null}
-                  </button>
-                ))}
+                <input type="text" placeholder="Nombre" value={formAbono.nombre} onChange={(e) => setFormAbono({ ...formAbono, nombre: e.target.value })} className="px-3 py-2 rounded-lg border border-black/15 text-sm" />
+                <input type="text" placeholder="Apellido" value={formAbono.apellido} onChange={(e) => setFormAbono({ ...formAbono, apellido: e.target.value })} className="px-3 py-2 rounded-lg border border-black/15 text-sm" />
+                <input type="tel" placeholder="Teléfono (opcional)" value={formAbono.telefono} onChange={(e) => setFormAbono({ ...formAbono, telefono: e.target.value })} className="px-3 py-2 rounded-lg border border-black/15 text-sm" />
               </div>
               <div className="flex flex-wrap items-end gap-2">
                 <label className="text-xs text-black/50">
-                  Precio a cobrar
+                  Monto del abono ($)
                   <input
                     type="number"
                     inputMode="decimal"
-                    value={formAbono.precio}
-                    onChange={(e) => setFormAbono({ ...formAbono, precio: e.target.value })}
-                    placeholder={preciosPacks[formAbono.pack] ? String(preciosPacks[formAbono.pack]) : "0"}
-                    className="mt-1 block w-32 px-3 py-2 rounded-lg border border-black/15 text-sm font-mono text-black"
+                    value={formAbono.monto}
+                    onChange={(e) => setFormAbono({ ...formAbono, monto: e.target.value })}
+                    placeholder="0"
+                    className="mt-1 block w-36 px-3 py-2 rounded-lg border border-black/15 text-sm font-mono text-black"
                   />
                 </label>
                 <label className="text-xs text-black/50">
                   Medio de pago
-                  <select
-                    value={formAbono.medio}
-                    onChange={(e) => setFormAbono({ ...formAbono, medio: e.target.value })}
-                    className="mt-1 block px-3 py-2 rounded-lg border border-black/15 text-sm text-black bg-white"
-                  >
+                  <select value={formAbono.medio} onChange={(e) => setFormAbono({ ...formAbono, medio: e.target.value })} className="mt-1 block px-3 py-2 rounded-lg border border-black/15 text-sm text-black bg-white">
                     {PAGOS.map((p) => (
                       <option key={p.id} value={p.id}>{p.label}</option>
                     ))}
                   </select>
                 </label>
-                <button
-                  onClick={venderAbono}
-                  className="px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700"
-                >
+                <button onClick={crearAbono} className="px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700">
                   Cobrar y crear abono
                 </button>
               </div>
-              <p className="text-xs text-black/40 mt-2">El cobro entra en la caja y en Informes como una venta más. Descontar copias después no vuelve a sumar plata.</p>
+              <p className="text-xs text-black/40 mt-2">Lo que se cobra acá entra en la caja y en Informes. Después, cuando consume, la venta se paga con "Abono" y no vuelve a sumar plata.</p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2 mb-3">
-              <input
-                type="text"
-                placeholder="Buscar por nombre, apellido o teléfono"
-                value={busquedaAbono}
-                onChange={(e) => setBusquedaAbono(e.target.value)}
-                className="flex-1 min-w-[200px] px-3 py-2 rounded-lg border border-black/15 text-sm"
-              />
+              <input type="text" placeholder="Buscar por nombre, apellido o teléfono" value={busquedaAbono} onChange={(e) => setBusquedaAbono(e.target.value)} className="flex-1 min-w-[200px] px-3 py-2 rounded-lg border border-black/15 text-sm" />
               <div className="flex rounded-lg bg-black/5 p-0.5 text-xs">
                 {[
                   { id: "conSaldo", label: "Con saldo" },
-                  { id: "agotados", label: "Agotados" },
+                  { id: "sinSaldo", label: "Sin saldo" },
                   { id: "todos", label: "Todos" },
                 ].map((f) => (
-                  <button
-                    key={f.id}
-                    onClick={() => setFiltroAbono(f.id)}
-                    className={"px-3 py-1.5 rounded-md font-medium transition " + (filtroAbono === f.id ? "bg-white shadow-sm text-blue-600" : "text-black/50")}
-                  >
+                  <button key={f.id} onClick={() => setFiltroAbono(f.id)} className={"px-3 py-1.5 rounded-md font-medium transition " + (filtroAbono === f.id ? "bg-white shadow-sm text-blue-600" : "text-black/50")}>
                     {f.label}
                   </button>
                 ))}
@@ -2938,132 +2966,71 @@ export default function App() {
 
             <div className="space-y-3">
               {abonosFiltrados.length === 0 && (
-                <p className="text-sm text-black/40 text-center py-6">
-                  {abonos.length === 0 ? "Todavía no hay abonos vendidos." : "No hay abonos que coincidan con la búsqueda."}
-                </p>
+                <p className="text-sm text-black/40 text-center py-6">{abonos.length === 0 ? "Todavía no hay abonos cargados." : "No hay abonos que coincidan con la búsqueda."}</p>
               )}
               {abonosFiltrados.map((a) => {
-                const pocas = a.copiasRestantes > 0 && a.copiasRestantes <= ABONO_POCAS_COPIAS;
-                const agotado = a.copiasRestantes <= 0;
-                const pct = a.copiasTotales > 0 ? Math.max(0, Math.min(100, (a.copiasRestantes / a.copiasTotales) * 100)) : 0;
-                const abierto = abonoAbiertoId === a.id;
+                const saldo = saldoAbono(a);
                 return (
                   <div key={a.id} className="bg-white rounded-xl shadow-sm border border-black/5 p-4">
                     <div className="flex items-start justify-between gap-3">
-                      <button className="text-left min-w-0" onClick={() => setAbonoAbiertoId(abierto ? null : a.id)}>
+                      <div className="min-w-0">
                         <p className="font-semibold">{nombreCompletoAbono(a)}</p>
                         <p className="text-xs text-black/40">
-                          {a.telefono ? a.telefono + " · " : ""}
-                          desde {new Date(a.fechaAlta).toLocaleDateString("es-AR")} · {a.copiasTotales} copias en total
+                          {a.telefono ? a.telefono + " · " : ""}desde {new Date(a.fechaAlta).toLocaleDateString("es-AR")}
                         </p>
-                      </button>
-                      <div className="text-right shrink-0">
-                        <p className={"font-mono font-bold text-2xl " + (agotado ? "text-red-600" : pocas ? "text-amber-600" : "text-green-700")}>{a.copiasRestantes}</p>
-                        <p className="text-[11px] text-black/40">{agotado ? "agotado" : pocas ? "quedan pocas" : "copias restantes"}</p>
                       </div>
-                    </div>
-                    <div className="h-1.5 rounded-full bg-black/5 mt-2 overflow-hidden">
-                      <div className={"h-full " + (agotado ? "bg-red-400" : pocas ? "bg-amber-400" : "bg-green-500")} style={{ width: pct + "%" }} />
+                      <div className="text-right shrink-0">
+                        <p className={"font-mono font-bold text-2xl " + (saldo > 0 ? "text-green-700" : "text-red-600")}>{money(saldo)}</p>
+                        <p className="text-[11px] text-black/40">{saldo > 0 ? "saldo disponible" : "sin saldo"}</p>
+                      </div>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2 mt-3">
-                      {[1, 10, 50].map((n) => (
-                        <button
-                          key={n}
-                          onClick={() => descontarCopias(a, n)}
-                          disabled={a.copiasRestantes < n}
-                          className="px-3 py-1.5 rounded-lg border border-black/15 text-xs font-mono font-semibold text-black/70 hover:bg-black/5 disabled:opacity-30"
-                        >
-                          −{n}
-                        </button>
-                      ))}
-                      <input
-                        type="number"
-                        inputMode="numeric"
-                        min="1"
-                        placeholder="Otra cant."
-                        value={descuentoAbono[a.id] || ""}
-                        onChange={(e) => setDescuentoAbono({ ...descuentoAbono, [a.id]: e.target.value })}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") descontarCopias(a, descuentoAbono[a.id]);
-                        }}
-                        className="w-24 px-2 py-1.5 rounded-lg border border-black/15 text-sm font-mono"
-                      />
                       <button
-                        onClick={() => descontarCopias(a, descuentoAbono[a.id])}
-                        disabled={agotado}
-                        className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-30"
-                      >
-                        Descontar
-                      </button>
-                      <button
-                        onClick={() =>
-                          setRecargaAbono(
-                            recargaAbono && recargaAbono.id === a.id
-                              ? null
-                              : { id: a.id, pack: 100, precio: preciosPacks[100] ? String(preciosPacks[100]) : "", medio: "efectivo" }
-                          )
-                        }
+                        onClick={() => setRecargaAbono(recargaAbono && recargaAbono.id === a.id ? null : { id: a.id, monto: "", medio: "efectivo" })}
                         className="px-3 py-1.5 rounded-lg border border-green-600/40 text-green-700 text-xs font-medium hover:bg-green-50"
                       >
                         Recargar
                       </button>
-                      <button
-                        onClick={() => setVerHistorialAbonoId(verHistorialAbonoId === a.id ? null : a.id)}
-                        className="px-3 py-1.5 rounded-lg text-xs text-blue-600 hover:underline"
-                      >
+                      <button onClick={() => setVerHistorialAbonoId(verHistorialAbonoId === a.id ? null : a.id)} className="px-3 py-1.5 rounded-lg text-xs text-blue-600 hover:underline">
                         {verHistorialAbonoId === a.id ? "Ocultar historial" : "Historial"}
                       </button>
                       {usuario.rol === "dueno" && (
-                        <button
-                          onClick={() => setEditandoAbono({ id: a.id, nombre: a.nombre, apellido: a.apellido, telefono: a.telefono || "" })}
-                          className="w-8 h-8 rounded hover:bg-black/5 flex items-center justify-center text-black/40"
-                          title="Editar datos"
-                        >
-                          <Pencil size={14} />
-                        </button>
+                        <>
+                          <button onClick={() => setAjusteAbono(ajusteAbono && ajusteAbono.id === a.id ? null : { id: a.id, monto: "", motivo: "" })} className="px-3 py-1.5 rounded-lg text-xs text-black/50 hover:underline">
+                            Ajustar saldo
+                          </button>
+                          <button onClick={() => setEditandoAbono({ id: a.id, nombre: a.nombre, apellido: a.apellido, telefono: a.telefono || "" })} className="w-8 h-8 rounded hover:bg-black/5 flex items-center justify-center text-black/40" title="Editar datos">
+                            <Pencil size={14} />
+                          </button>
+                        </>
                       )}
                     </div>
 
                     {recargaAbono && recargaAbono.id === a.id && (
-                      <div className="mt-3 rounded-lg border border-green-600/20 bg-green-50/50 p-3">
-                        <p className="text-xs font-semibold mb-2">Recargar abono de {nombreCompletoAbono(a)}</p>
-                        <div className="flex flex-wrap gap-2 mb-2">
-                          {PACKS_ABONO.map((p) => (
-                            <button
-                              key={p}
-                              onClick={() => setRecargaAbono({ ...recargaAbono, pack: p, precio: preciosPacks[p] ? String(preciosPacks[p]) : "" })}
-                              className={
-                                "px-3 py-1.5 rounded-lg border text-xs font-medium " +
-                                (Number(recargaAbono.pack) === p ? "bg-green-600 border-green-600 text-white" : "border-black/15 text-black/70 hover:bg-black/5")
-                              }
-                            >
-                              +{p}
-                            </button>
+                      <div className="mt-3 rounded-lg border border-green-600/20 bg-green-50/50 p-3 flex flex-wrap items-end gap-2">
+                        <label className="text-xs text-black/50">
+                          Monto a cargar ($)
+                          <input type="number" inputMode="decimal" value={recargaAbono.monto} onChange={(e) => setRecargaAbono({ ...recargaAbono, monto: e.target.value })} className="mt-1 block w-32 px-3 py-1.5 rounded-lg border border-black/15 text-sm font-mono text-black" />
+                        </label>
+                        <select value={recargaAbono.medio} onChange={(e) => setRecargaAbono({ ...recargaAbono, medio: e.target.value })} className="px-3 py-1.5 rounded-lg border border-black/15 text-sm bg-white">
+                          {PAGOS.map((p) => (
+                            <option key={p.id} value={p.id}>{p.label}</option>
                           ))}
-                        </div>
-                        <div className="flex flex-wrap items-end gap-2">
-                          <input
-                            type="number"
-                            inputMode="decimal"
-                            placeholder="Precio"
-                            value={recargaAbono.precio}
-                            onChange={(e) => setRecargaAbono({ ...recargaAbono, precio: e.target.value })}
-                            className="w-28 px-3 py-1.5 rounded-lg border border-black/15 text-sm font-mono"
-                          />
-                          <select
-                            value={recargaAbono.medio}
-                            onChange={(e) => setRecargaAbono({ ...recargaAbono, medio: e.target.value })}
-                            className="px-3 py-1.5 rounded-lg border border-black/15 text-sm bg-white"
-                          >
-                            {PAGOS.map((p) => (
-                              <option key={p.id} value={p.id}>{p.label}</option>
-                            ))}
-                          </select>
-                          <button onClick={confirmarRecargaAbono} className="px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-medium hover:bg-green-700">
-                            Cobrar recarga
-                          </button>
-                        </div>
+                        </select>
+                        <button onClick={confirmarRecargaAbono} className="px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-medium hover:bg-green-700">Cobrar recarga</button>
+                      </div>
+                    )}
+
+                    {ajusteAbono && ajusteAbono.id === a.id && (
+                      <div className="mt-3 rounded-lg border border-black/10 bg-black/[0.02] p-3 flex flex-wrap items-end gap-2">
+                        <label className="text-xs text-black/50">
+                          Ajuste ($, negativo resta)
+                          <input type="number" inputMode="decimal" value={ajusteAbono.monto} onChange={(e) => setAjusteAbono({ ...ajusteAbono, monto: e.target.value })} className="mt-1 block w-32 px-3 py-1.5 rounded-lg border border-black/15 text-sm font-mono text-black" />
+                        </label>
+                        <input type="text" placeholder="Motivo" value={ajusteAbono.motivo} onChange={(e) => setAjusteAbono({ ...ajusteAbono, motivo: e.target.value })} className="flex-1 min-w-[140px] px-3 py-1.5 rounded-lg border border-black/15 text-sm" />
+                        <button onClick={confirmarAjusteAbono} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700">Aplicar</button>
+                        <button onClick={() => setAjusteAbono(null)} className="px-3 py-1.5 rounded-lg border border-black/15 text-xs text-black/60 hover:bg-black/5">Cancelar</button>
                       </div>
                     )}
 
@@ -3083,29 +3050,26 @@ export default function App() {
 
                     {verHistorialAbonoId === a.id && (
                       <div className="mt-3 divide-y divide-black/5 rounded-lg border border-black/5">
-                        {(a.movimientos || []).map((m) => (
-                          <div key={m.id} className={"p-2.5 flex items-center justify-between text-xs " + (m.anulado ? "opacity-50" : "")}>
-                            <div>
-                              <p className={"font-medium " + (m.anulado ? "line-through" : "")}>
-                                {m.tipo === "descuento" ? "Descuento" : m.tipo === "recarga" ? "Recarga" : "Alta del abono"}
-                                {m.anulado ? " (anulado)" : ""}
-                              </p>
-                              <p className="text-black/40">
-                                {new Date(m.fecha).toLocaleDateString("es-AR")} {new Date(m.fecha).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
-                                {m.por ? " · " + m.por : ""}
-                                {m.precio ? " · cobrado " + money(m.precio) : ""}
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className={"font-mono font-semibold " + (m.tipo === "descuento" ? "text-red-600" : "text-green-700")}>
-                                {m.tipo === "descuento" ? "−" : "+"}{m.copias}
+                        {(a.movimientos || []).filter((m) => typeof m.monto === "number").length === 0 && (
+                          <p className="p-2.5 text-xs text-black/40">Sin movimientos.</p>
+                        )}
+                        {(a.movimientos || [])
+                          .filter((m) => typeof m.monto === "number")
+                          .map((m) => (
+                            <div key={m.id} className="p-2.5 flex items-start justify-between gap-2 text-xs">
+                              <div className="min-w-0">
+                                <p className="font-medium">{m.tipo === "consumo" ? "Compra con abono" : m.tipo === "ajuste" ? "Ajuste de saldo" : "Carga de saldo"}</p>
+                                <p className="text-black/40">
+                                  {new Date(m.fecha).toLocaleDateString("es-AR")} {new Date(m.fecha).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
+                                  {m.por ? " · " + m.por : ""}
+                                </p>
+                                {m.detalle && <p className="text-black/50 break-words">{m.detalle}</p>}
+                              </div>
+                              <span className={"font-mono font-semibold shrink-0 " + (m.tipo === "consumo" || m.monto < 0 ? "text-red-600" : "text-green-700")}>
+                                {m.tipo === "consumo" ? "−" + money(m.monto) : (m.monto < 0 ? "−" : "+") + money(Math.abs(m.monto))}
                               </span>
-                              {usuario.rol === "dueno" && m.tipo === "descuento" && !m.anulado && (
-                                <button onClick={() => anularDescuentoAbono(a, m)} className="text-[11px] text-red-500 hover:underline">anular</button>
-                              )}
                             </div>
-                          </div>
-                        ))}
+                          ))}
                       </div>
                     )}
                   </div>
@@ -4240,7 +4204,7 @@ export default function App() {
                         {new Date(v.fecha).toLocaleDateString("es-AR")} {new Date(v.fecha).toLocaleTimeString("es-AR")} · {labelPago(v)}
                         {" · "}
                         <span className={v.facturada ? "text-green-700" : "text-black/40"}>
-                          {v.facturada ? "Facturada" : "Factura pendiente"}
+                          {v.facturada ? "Facturada" : v.esCargaAbono ? "Carga de abono" : "Factura pendiente"}
                         </span>
                         {v.descuentoPct > 0 && <span className="text-red-600"> · {v.descuentoPct}% off</span>}
                         {v.recargoPct > 0 && <span className="text-green-700"> · +{v.recargoPct}% recargo</span>}
@@ -4754,7 +4718,7 @@ export default function App() {
               </button>
             </div>
 
-            <p className="text-xs text-black/40 mb-3">No incluye Cuenta Colegio (esas no se cobran el mismo día, se le factura aparte a la dirección).</p>
+            <p className="text-xs text-black/40 mb-3">No incluye Cuenta Colegio (se le factura aparte a la dirección) ni las compras pagadas con abono (esa plata ya entró cuando se cargó el abono).</p>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
               <div className="bg-blue-50 rounded-lg p-3">
@@ -4787,7 +4751,7 @@ export default function App() {
                         {new Date(v.fecha).toLocaleTimeString("es-AR")} · {labelPago(v)}
                         {" · "}
                         <span className={v.facturada ? "text-green-700" : "text-black/40"}>
-                          {v.facturada ? "Facturada" : "Factura pendiente"}
+                          {v.facturada ? "Facturada" : v.esCargaAbono ? "Carga de abono" : "Factura pendiente"}
                         </span>
                       </p>
                     </div>
