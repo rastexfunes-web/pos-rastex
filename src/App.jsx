@@ -311,6 +311,7 @@ export default function App() {
   const [editandoAbono, setEditandoAbono] = useState(null); // { id, nombre, apellido, telefono }
   const [ajusteAbono, setAjusteAbono] = useState(null); // { id, monto, motivo }
   const [abonoSelId, setAbonoSelId] = useState(null); // abono elegido en Vender
+  const [verResumenEfectivo, setVerResumenEfectivo] = useState(false);
   const [busquedaAbonoVenta, setBusquedaAbonoVenta] = useState("");
   const [anioAlquiler, setAnioAlquiler] = useState(new Date().getFullYear());
   const [movLuciana, setMovLuciana] = useState({ tipo: "pago", monto: "", concepto: "", fecha: todayKey(), deCaja: false });
@@ -1902,6 +1903,37 @@ export default function App() {
     } catch (e) {
       window.prompt("No se pudo copiar automáticamente. Copiá el texto de acá:", texto);
     }
+  }
+
+  // ---- Resumen de caja: SOLO EFECTIVO (período de Informes, sin el filtro de facturación) ----
+  const ventasPeriodoEfectivo = filtrarPorPeriodo(
+    negocioData.ventas.filter((v) => v.tipoPago !== "colegio" && v.tipoPago !== "abono"),
+    vistaTotales,
+    fechaFiltro,
+    fechaDesde,
+    fechaHasta
+  );
+  const cobrosEfectivo = ventasPeriodoEfectivo
+    .map((v) => ({
+      venta: v,
+      monto: v.desglosePago ? v.desglosePago.efectivo || 0 : v.tipoPago === "efectivo" ? v.total : 0,
+    }))
+    .filter((x) => x.monto !== 0)
+    .sort((a, b) => new Date(b.venta.fecha).getTime() - new Date(a.venta.fecha).getTime());
+  const totalCobrosEfectivo = cobrosEfectivo.reduce((acc, x) => acc + x.monto, 0);
+  const efectivoNetoPeriodo = totalCobrosEfectivo - totalRetirosVista;
+  const cierresPeriodo = filtrarPorPeriodo(
+    (caja.cierres || []).map((c) => ({ ...c, fecha: c.horaCierre })),
+    vistaTotales,
+    fechaFiltro,
+    fechaDesde,
+    fechaHasta
+  );
+  function tituloPeriodoInformes() {
+    if (vistaTotales === "hoy") return "Hoy";
+    if (vistaTotales === "dia") return "Del " + new Date(fechaFiltro + "T00:00:00").toLocaleDateString("es-AR");
+    if (vistaTotales === "30dias") return "Últimos 30 días";
+    return tituloHistorico().replace("Informe ", "");
   }
 
   // ---- Abonos de fotocopias (saldo en pesos) ----
@@ -4051,6 +4083,93 @@ export default function App() {
               <div className="bg-white rounded-xl shadow-sm border border-black/5 p-4 mb-6 flex items-center justify-between text-sm">
                 <span className="text-black/50">Total vendido en Uniformes (base del cálculo)</span>
                 <span className="font-mono font-semibold">{money(totalUniformesComision)}</span>
+              </div>
+            )}
+
+            <button
+              onClick={() => setVerResumenEfectivo((v) => !v)}
+              className="w-full bg-emerald-50 border border-emerald-200 rounded-xl p-4 mb-3 flex items-center justify-between hover:bg-emerald-100 transition no-print"
+            >
+              <div className="text-left">
+                <p className="font-semibold text-sm text-emerald-900">Resumen de caja (solo efectivo)</p>
+                <p className="text-xs text-emerald-700/70">
+                  {tituloPeriodoInformes()} · cobrado {money(totalCobrosEfectivo)} − retiros {money(totalRetirosVista)}
+                </p>
+              </div>
+              <span className="font-mono font-bold text-lg text-emerald-800">{money(efectivoNetoPeriodo)}</span>
+            </button>
+            {verResumenEfectivo && (
+              <div className="bg-white rounded-xl shadow-sm border border-black/5 p-4 mb-6">
+                <div className="flex items-start justify-between gap-2 mb-3">
+                  <div>
+                    <h2 className="font-bold text-sm">Caja en efectivo — {tituloPeriodoInformes()}</h2>
+                    <p className="text-xs text-black/40">Solo billetes: no incluye transferencias, tarjetas, Mercado Pago ni Cuenta Colegio. Las compras pagadas con abono no entran (esa plata se cobró al cargar el abono).</p>
+                  </div>
+                  <button onClick={() => window.print()} className="no-print flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-black/15 text-xs font-medium text-black/60 hover:bg-black/5 shrink-0">
+                    <Printer size={14} /> Imprimir
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 mb-4">
+                  <div className="rounded-lg bg-emerald-50 p-3">
+                    <p className="text-[11px] text-emerald-700/70">Cobrado en efectivo</p>
+                    <p className="font-mono font-semibold text-sm text-emerald-800">{money(totalCobrosEfectivo)}</p>
+                    <p className="text-[11px] text-black/40">{cobrosEfectivo.length} cobro{cobrosEfectivo.length === 1 ? "" : "s"}</p>
+                  </div>
+                  <div className="rounded-lg bg-rose-50 p-3">
+                    <p className="text-[11px] text-rose-700/70">Retiros</p>
+                    <p className="font-mono font-semibold text-sm text-rose-800">-{money(totalRetirosVista)}</p>
+                    <p className="text-[11px] text-black/40">{retirosVista.length} retiro{retirosVista.length === 1 ? "" : "s"}</p>
+                  </div>
+                  <div className="rounded-lg bg-black/5 p-3">
+                    <p className="text-[11px] text-black/50">Efectivo neto</p>
+                    <p className="font-mono font-bold text-sm">{money(efectivoNetoPeriodo)}</p>
+                    <p className="text-[11px] text-black/40">cobrado − retiros</p>
+                  </div>
+                </div>
+
+                <p className="text-xs font-semibold mb-1">Cierres de caja del período</p>
+                <div className="divide-y divide-black/5 rounded-lg border border-black/5 mb-4">
+                  {cierresPeriodo.length === 0 ? (
+                    <p className="p-3 text-xs text-black/40">No hay cierres de caja en este período.</p>
+                  ) : (
+                    cierresPeriodo.map((c) => (
+                      <div key={c.id} className="p-3 text-xs">
+                        <p className="font-medium mb-1">
+                          {new Date(c.horaApertura).toLocaleDateString("es-AR")} {new Date(c.horaApertura).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
+                          {" → "}
+                          {new Date(c.horaCierre).toLocaleDateString("es-AR")} {new Date(c.horaCierre).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
+                        </p>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 font-mono">
+                          <span className="text-black/50">Inicial <b className="text-black">{money(c.montoInicial || 0)}</b></span>
+                          <span className="text-black/50">Cobrado <b className="text-emerald-700">{money(c.efectivo || 0)}</b></span>
+                          <span className="text-black/50">Retiros <b className="text-rose-700">-{money(c.totalRetiros || 0)}</b></span>
+                          <span className="text-black/50">Quedó <b className="text-black">{money(c.efectivoFinal || 0)}</b></span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <p className="text-xs font-semibold mb-1">Cobros en efectivo</p>
+                <div className="divide-y divide-black/5 rounded-lg border border-black/5">
+                  {cobrosEfectivo.length === 0 ? (
+                    <p className="p-3 text-xs text-black/40">No hay cobros en efectivo en este período.</p>
+                  ) : (
+                    cobrosEfectivo.map(({ venta, monto }) => (
+                      <div key={venta.id} className="p-2.5 flex items-center justify-between gap-2 text-xs">
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{venta.items.map((i) => i.cantidad + "x " + i.nombre).join(", ")}</p>
+                          <p className="text-black/40">
+                            {new Date(venta.fecha).toLocaleDateString("es-AR")} {new Date(venta.fecha).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
+                            {venta.desglosePago ? " · parte de un pago múltiple" : ""}
+                          </p>
+                        </div>
+                        <span className={"font-mono font-semibold shrink-0 " + (monto < 0 ? "text-rose-700" : "")}>{money(monto)}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             )}
 
