@@ -1921,7 +1921,6 @@ export default function App() {
     .filter((x) => x.monto !== 0)
     .sort((a, b) => new Date(b.venta.fecha).getTime() - new Date(a.venta.fecha).getTime());
   const totalCobrosEfectivo = cobrosEfectivo.reduce((acc, x) => acc + x.monto, 0);
-  const efectivoNetoPeriodo = totalCobrosEfectivo - totalRetirosVista;
   const cierresPeriodo = filtrarPorPeriodo(
     (caja.cierres || []).map((c) => ({ ...c, fecha: c.horaCierre })),
     vistaTotales,
@@ -1929,6 +1928,17 @@ export default function App() {
     fechaDesde,
     fechaHasta
   );
+  // Efectivo inicial del período = el que se declaró al abrir la PRIMERA caja del período
+  // (las cajas siguientes arrancan con lo que dejó la anterior, así que no se suman).
+  const cajaAbiertaEnPeriodo =
+    !!(caja.abierta && caja.horaApertura) &&
+    filtrarPorPeriodo([{ fecha: caja.horaApertura }], vistaTotales, fechaFiltro, fechaDesde, fechaHasta).length > 0;
+  const aperturasPeriodo = [
+    ...cierresPeriodo.map((c) => ({ hora: c.horaApertura, monto: c.montoInicial || 0 })),
+    ...(cajaAbiertaEnPeriodo ? [{ hora: caja.horaApertura, monto: caja.montoInicial || 0 }] : []),
+  ].sort((a, b) => new Date(a.hora).getTime() - new Date(b.hora).getTime());
+  const efectivoInicialPeriodo = aperturasPeriodo.length > 0 ? aperturasPeriodo[0].monto : 0;
+  const efectivoEnCajaPeriodo = efectivoInicialPeriodo + totalCobrosEfectivo - totalRetirosVista;
   function tituloPeriodoInformes() {
     if (vistaTotales === "hoy") return "Hoy";
     if (vistaTotales === "dia") return "Del " + new Date(fechaFiltro + "T00:00:00").toLocaleDateString("es-AR");
@@ -4093,24 +4103,29 @@ export default function App() {
               <div className="text-left">
                 <p className="font-semibold text-sm text-emerald-900">Resumen de caja (solo efectivo)</p>
                 <p className="text-xs text-emerald-700/70">
-                  {tituloPeriodoInformes()} · cobrado {money(totalCobrosEfectivo)} − retiros {money(totalRetirosVista)}
+                  {tituloPeriodoInformes()} · inicial {money(efectivoInicialPeriodo)} + cobrado {money(totalCobrosEfectivo)} − retiros {money(totalRetirosVista)}
                 </p>
               </div>
-              <span className="font-mono font-bold text-lg text-emerald-800">{money(efectivoNetoPeriodo)}</span>
+              <span className="font-mono font-bold text-lg text-emerald-800">{money(efectivoEnCajaPeriodo)}</span>
             </button>
             {verResumenEfectivo && (
               <div className="bg-white rounded-xl shadow-sm border border-black/5 p-4 mb-6">
                 <div className="flex items-start justify-between gap-2 mb-3">
                   <div>
                     <h2 className="font-bold text-sm">Caja en efectivo — {tituloPeriodoInformes()}</h2>
-                    <p className="text-xs text-black/40">Solo billetes: no incluye transferencias, tarjetas, Mercado Pago ni Cuenta Colegio. Las compras pagadas con abono no entran (esa plata se cobró al cargar el abono).</p>
+                    <p className="text-xs text-black/40">Solo billetes: no incluye transferencias, tarjetas, Mercado Pago ni Cuenta Colegio. El efectivo inicial es el que se declaró al abrir la primera caja del período. Las compras pagadas con abono no entran (esa plata se cobró al cargar el abono).</p>
                   </div>
                   <button onClick={() => window.print()} className="no-print flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-black/15 text-xs font-medium text-black/60 hover:bg-black/5 shrink-0">
                     <Printer size={14} /> Imprimir
                   </button>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2 mb-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+                  <div className="rounded-lg bg-sky-50 p-3">
+                    <p className="text-[11px] text-sky-700/70">Efectivo inicial</p>
+                    <p className="font-mono font-semibold text-sm text-sky-800">{money(efectivoInicialPeriodo)}</p>
+                    <p className="text-[11px] text-black/40">{aperturasPeriodo.length > 0 ? "al abrir la caja" : "sin caja registrada"}</p>
+                  </div>
                   <div className="rounded-lg bg-emerald-50 p-3">
                     <p className="text-[11px] text-emerald-700/70">Cobrado en efectivo</p>
                     <p className="font-mono font-semibold text-sm text-emerald-800">{money(totalCobrosEfectivo)}</p>
@@ -4122,15 +4137,29 @@ export default function App() {
                     <p className="text-[11px] text-black/40">{retirosVista.length} retiro{retirosVista.length === 1 ? "" : "s"}</p>
                   </div>
                   <div className="rounded-lg bg-black/5 p-3">
-                    <p className="text-[11px] text-black/50">Efectivo neto</p>
-                    <p className="font-mono font-bold text-sm">{money(efectivoNetoPeriodo)}</p>
-                    <p className="text-[11px] text-black/40">cobrado − retiros</p>
+                    <p className="text-[11px] text-black/50">Efectivo en caja</p>
+                    <p className="font-mono font-bold text-sm">{money(efectivoEnCajaPeriodo)}</p>
+                    <p className="text-[11px] text-black/40">inicial + cobrado − retiros</p>
                   </div>
                 </div>
 
                 <p className="text-xs font-semibold mb-1">Cierres de caja del período</p>
                 <div className="divide-y divide-black/5 rounded-lg border border-black/5 mb-4">
-                  {cierresPeriodo.length === 0 ? (
+                  {cajaAbiertaEnPeriodo && (
+                    <div className="p-3 text-xs bg-emerald-50/50">
+                      <p className="font-medium mb-1">
+                        Caja abierta ahora (desde {new Date(caja.horaApertura).toLocaleDateString("es-AR")}{" "}
+                        {new Date(caja.horaApertura).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })})
+                      </p>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 font-mono">
+                        <span className="text-black/50">Inicial <b className="text-black">{money(caja.montoInicial || 0)}</b></span>
+                        <span className="text-black/50">Cobrado <b className="text-emerald-700">{money(resumenCaja.efectivo || 0)}</b></span>
+                        <span className="text-black/50">Retiros <b className="text-rose-700">-{money(totalRetiros)}</b></span>
+                        <span className="text-black/50">Hay ahora <b className="text-black">{money(efectivoDisponible)}</b></span>
+                      </div>
+                    </div>
+                  )}
+                  {cierresPeriodo.length === 0 && !cajaAbiertaEnPeriodo ? (
                     <p className="p-3 text-xs text-black/40">No hay cierres de caja en este período.</p>
                   ) : (
                     cierresPeriodo.map((c) => (
