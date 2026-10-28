@@ -47,6 +47,7 @@ function normalizarExtras(parsed) {
     ctaLuciana: (parsed && parsed.ctaLuciana) || [],
     alquileres: (parsed && parsed.alquileres) || {},
     pagosColegio: (parsed && parsed.pagosColegio) || [],
+    alqFotocopia: (parsed && parsed.alqFotocopia) || { mensual: 0, movimientos: [] },
   };
 }
 
@@ -71,6 +72,7 @@ const TABS = [
   { id: "informes", label: "Informes", icon: BarChart3 },
   { id: "cuentacolegio", label: "Cuenta Colegio", icon: Building2 },
   { id: "ctaluciana", label: "Cta. Cte. Luciana", icon: Wallet },
+  { id: "alqfoto", label: "Alquiler fotocopia", icon: Printer },
 ];
 
 const USUARIOS_POR_UID = {
@@ -312,6 +314,10 @@ export default function App() {
   const [ajusteAbono, setAjusteAbono] = useState(null); // { id, monto, motivo }
   const [abonoSelId, setAbonoSelId] = useState(null); // abono elegido en Vender
   const [verResumenEfectivo, setVerResumenEfectivo] = useState(false);
+  // Cuenta corriente del alquiler de la fotocopiadora (solo dueño, doc "colegio-extras")
+  const ALQ_FORM_VACIO = { abierto: false, id: null, tipo: "pago", monto: "", fecha: "", mes: "", medio: "transferencia", nota: "" };
+  const [formAlq, setFormAlq] = useState(ALQ_FORM_VACIO);
+  const [mensualAlqEdit, setMensualAlqEdit] = useState(null);
   const [busquedaAbonoVenta, setBusquedaAbonoVenta] = useState("");
   const [anioAlquiler, setAnioAlquiler] = useState(new Date().getFullYear());
   const [movLuciana, setMovLuciana] = useState({ tipo: "pago", monto: "", concepto: "", fecha: todayKey(), deCaja: false });
@@ -371,7 +377,7 @@ export default function App() {
   const tabsVisibles =
     usuario && usuario.rol === "empleado"
       ? TABS.filter((t) => t.id === "venta" || (t.id === "abonos" && negocioId === "colegio"))
-      : TABS.filter((t) => (t.id !== "cuentacolegio" && t.id !== "ctaluciana" && t.id !== "abonos") || negocioId === "colegio");
+      : TABS.filter((t) => (t.id !== "cuentacolegio" && t.id !== "ctaluciana" && t.id !== "abonos" && t.id !== "alqfoto") || negocioId === "colegio");
 
   function iniciarSesion(u) {
     setUsuario(u);
@@ -423,7 +429,7 @@ export default function App() {
     setVerStockBajo(false);
     setRemitoVenta(null);
     setConfirmarReinicio(false);
-    if ((tab === "cuentacolegio" || tab === "ctaluciana" || tab === "abonos") && negocioId !== "colegio") {
+    if ((tab === "cuentacolegio" || tab === "ctaluciana" || tab === "abonos" || tab === "alqfoto") && negocioId !== "colegio") {
       setTab("venta");
     }
     cargarNegocioData(negocioId)
@@ -1903,6 +1909,125 @@ export default function App() {
     } catch (e) {
       window.prompt("No se pudo copiar automáticamente. Copiá el texto de acá:", texto);
     }
+  }
+
+  // ---- Cuenta corriente: alquiler de la fotocopiadora ----
+  // Saldo > 0 = lo que todavía hay que pagar. "inicial" y "cargo" suman; "pago" resta.
+  const alqFoto = extrasColegio.alqFotocopia || { mensual: 0, movimientos: [] };
+  const movimientosAlq = alqFoto.movimientos || [];
+  const ordenTipoAlq = { inicial: 0, cargo: 1, pago: 2 };
+  const movimientosAlqConSaldo = (() => {
+    const asc = movimientosAlq
+      .slice()
+      .sort(
+        (a, b) =>
+          new Date(a.fecha).getTime() - new Date(b.fecha).getTime() ||
+          (ordenTipoAlq[a.tipo] ?? 9) - (ordenTipoAlq[b.tipo] ?? 9)
+      );
+    let acc = 0;
+    return asc
+      .map((m) => {
+        acc += m.tipo === "pago" ? -m.monto : m.monto;
+        return { ...m, saldoDespues: acc };
+      })
+      .reverse(); // más nuevos arriba
+  })();
+  const alqInicial = movimientosAlq.filter((m) => m.tipo === "inicial").reduce((a, m) => a + m.monto, 0);
+  const alqCargosMensuales = movimientosAlq.filter((m) => m.tipo === "cargo").reduce((a, m) => a + m.monto, 0);
+  const alqPagado = movimientosAlq.filter((m) => m.tipo === "pago").reduce((a, m) => a + m.monto, 0);
+  const alqSaldo = alqInicial + alqCargosMensuales - alqPagado;
+  const hayInicialAlq = movimientosAlq.some((m) => m.tipo === "inicial");
+  const nombreMesAlq = (yyyymm) => {
+    const [y, m] = String(yyyymm).split("-").map(Number);
+    if (!y || !m) return yyyymm;
+    const n = new Date(y, m - 1, 1).toLocaleDateString("es-AR", { month: "long" });
+    return n.charAt(0).toUpperCase() + n.slice(1) + " " + y;
+  };
+
+  function guardarAlqFotocopia(nuevo) {
+    return persistExtras({ ...extrasColegio, alqFotocopia: { ...alqFoto, ...nuevo } });
+  }
+
+  function abrirFormAlq(tipo, mov) {
+    if (mov) {
+      setFormAlq({
+        abierto: true,
+        id: mov.id,
+        tipo: mov.tipo,
+        monto: String(mov.monto),
+        fecha: String(mov.fecha).slice(0, 10),
+        mes: mov.mes || "",
+        medio: mov.medio || "transferencia",
+        nota: mov.nota || "",
+      });
+      return;
+    }
+    const hoy = todayKey();
+    setFormAlq({
+      ...ALQ_FORM_VACIO,
+      abierto: true,
+      tipo,
+      fecha: hoy,
+      mes: hoy.slice(0, 7),
+      monto: tipo === "cargo" && alqFoto.mensual ? String(alqFoto.mensual) : "",
+    });
+  }
+
+  function guardarFormAlq() {
+    const f = formAlq;
+    const monto = Number(String(f.monto).replace(",", "."));
+    if (!monto || monto <= 0) {
+      alert("Ingresá un importe mayor a 0.");
+      return;
+    }
+    let fecha;
+    if (f.tipo === "cargo") {
+      if (!f.mes) {
+        alert("Elegí el mes que corresponde.");
+        return;
+      }
+      if (!f.id && movimientosAlq.some((m) => m.tipo === "cargo" && m.mes === f.mes)) {
+        if (!window.confirm("Ya cargaste " + nombreMesAlq(f.mes) + ". ¿Querés cargarlo de nuevo igual?")) return;
+      }
+      fecha = new Date(f.mes + "-01T12:00:00").toISOString();
+    } else {
+      if (!f.fecha) {
+        alert("Elegí la fecha.");
+        return;
+      }
+      if (f.tipo === "inicial" && !f.id && hayInicialAlq) {
+        alert("Ya hay un saldo inicial cargado. Editalo desde la lista de movimientos.");
+        return;
+      }
+      fecha = new Date(f.fecha + "T12:00:00").toISOString();
+    }
+    const datos = {
+      tipo: f.tipo,
+      monto,
+      fecha,
+      ...(f.tipo === "cargo" ? { mes: f.mes } : {}),
+      ...(f.tipo === "pago" ? { medio: f.medio } : {}),
+      nota: f.nota.trim(),
+    };
+    const nuevos = f.id
+      ? movimientosAlq.map((m) => (m.id === f.id ? { id: m.id, ...datos } : m))
+      : [{ id: "af-" + Date.now(), ...datos }, ...movimientosAlq];
+    if (guardarAlqFotocopia({ movimientos: nuevos })) setFormAlq(ALQ_FORM_VACIO);
+  }
+
+  function borrarMovAlq(m) {
+    const que = m.tipo === "pago" ? "el pago" : m.tipo === "cargo" ? "el cargo de " + nombreMesAlq(m.mes) : "el saldo inicial";
+    if (!window.confirm("¿Borrar " + que + " de " + money(m.monto) + "?")) return;
+    guardarAlqFotocopia({ movimientos: movimientosAlq.filter((x) => x.id !== m.id) });
+  }
+
+  function guardarMensualAlq() {
+    const v = Number(String(mensualAlqEdit).replace(",", "."));
+    if (isNaN(v) || v < 0) {
+      alert("Ingresá un importe válido.");
+      return;
+    }
+    if (guardarAlqFotocopia({ mensual: v })) setMensualAlqEdit(null);
   }
 
   // ---- Resumen de caja: SOLO EFECTIVO (período de Informes, sin el filtro de facturación) ----
@@ -3396,6 +3521,148 @@ export default function App() {
 
 
             <p className="text-xs text-black/40 mt-3">El stock se descuenta solo cada vez que confirmás una venta en "Vender".</p>
+          </div>
+        ) : tab === "alqfoto" && usuario.rol === "dueno" ? (
+          <div>
+            <div className="flex items-start justify-between gap-2 flex-wrap mb-4">
+              <div>
+                <h1 className="text-xl font-bold">Alquiler de la fotocopiadora — {negocio.nombre}</h1>
+                <p className="text-xs text-black/40">Cuenta corriente: saldo inicial + importes mensuales − pagos = saldo.</p>
+              </div>
+              <button onClick={() => window.print()} className="no-print flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-black/15 text-xs font-medium text-black/60 hover:bg-black/5">
+                <Printer size={14} /> Imprimir
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+              <div className="rounded-xl bg-white border border-black/5 shadow-sm p-3">
+                <p className="text-[11px] text-black/50">Saldo inicial</p>
+                <p className="font-mono font-semibold text-sm">{money(alqInicial)}</p>
+              </div>
+              <div className="rounded-xl bg-white border border-black/5 shadow-sm p-3">
+                <p className="text-[11px] text-black/50">Importes mensuales</p>
+                <p className="font-mono font-semibold text-sm">{money(alqCargosMensuales)}</p>
+              </div>
+              <div className="rounded-xl bg-green-50 border border-green-100 p-3">
+                <p className="text-[11px] text-green-700/70">Pagado</p>
+                <p className="font-mono font-semibold text-sm text-green-700">{money(alqPagado)}</p>
+              </div>
+              <div className={"rounded-xl p-3 border " + (alqSaldo > 0 ? "bg-amber-50 border-amber-200" : "bg-green-50 border-green-100")}>
+                <p className={"text-[11px] " + (alqSaldo > 0 ? "text-amber-700/70" : "text-green-700/70")}>
+                  {alqSaldo > 0 ? "Saldo a pagar" : alqSaldo < 0 ? "Saldo a favor" : "Al día"}
+                </p>
+                <p className={"font-mono font-bold text-base " + (alqSaldo > 0 ? "text-amber-800" : "text-green-700")}>{money(Math.abs(alqSaldo))}</p>
+              </div>
+            </div>
+
+            <div className="no-print bg-white rounded-xl shadow-sm border border-black/5 p-4 mb-4">
+              <div className="flex flex-wrap items-center gap-2 mb-3">
+                <button onClick={() => abrirFormAlq("cargo")} disabled={!extrasCargado} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50">
+                  + Cargar importe mensual
+                </button>
+                <button onClick={() => abrirFormAlq("pago")} disabled={!extrasCargado} className="px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-medium hover:bg-green-700 disabled:opacity-50">
+                  + Registrar pago
+                </button>
+                {!hayInicialAlq && (
+                  <button onClick={() => abrirFormAlq("inicial")} disabled={!extrasCargado} className="px-3 py-1.5 rounded-lg border border-black/15 text-xs font-medium text-black/70 hover:bg-black/5 disabled:opacity-50">
+                    + Saldo inicial
+                  </button>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 text-xs text-black/60">
+                <span>Importe mensual habitual:</span>
+                {mensualAlqEdit === null ? (
+                  <>
+                    <span className="font-mono font-semibold text-black">{alqFoto.mensual ? money(alqFoto.mensual) : "sin definir"}</span>
+                    <button onClick={() => setMensualAlqEdit(String(alqFoto.mensual || ""))} className="text-blue-600 hover:underline">cambiar</button>
+                  </>
+                ) : (
+                  <>
+                    <input type="number" inputMode="decimal" value={mensualAlqEdit} onChange={(e) => setMensualAlqEdit(e.target.value)} className="w-32 px-2 py-1 rounded-lg border border-black/15 text-sm font-mono text-black" />
+                    <button onClick={guardarMensualAlq} className="px-2 py-1 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700">Guardar</button>
+                    <button onClick={() => setMensualAlqEdit(null)} className="px-2 py-1 rounded-lg border border-black/15 hover:bg-black/5">Cancelar</button>
+                  </>
+                )}
+                <span className="text-black/40">(es solo el valor que se propone al cargar un mes; podés cambiarlo cada vez)</span>
+              </div>
+
+              {formAlq.abierto && (
+                <div className="mt-3 rounded-lg border border-black/10 p-3 bg-black/[0.02]">
+                  <p className="text-xs font-semibold mb-2">
+                    {formAlq.id ? "Editar " : "Nuevo "}
+                    {formAlq.tipo === "pago" ? "pago" : formAlq.tipo === "cargo" ? "importe mensual" : "saldo inicial"}
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+                    <label className="text-xs text-black/50">
+                      Importe ($)
+                      <input type="number" inputMode="decimal" value={formAlq.monto} onChange={(e) => setFormAlq({ ...formAlq, monto: e.target.value })} placeholder="0" className="mt-1 w-full px-3 py-1.5 rounded-lg border border-black/15 text-sm font-mono text-black" />
+                    </label>
+                    {formAlq.tipo === "cargo" ? (
+                      <label className="text-xs text-black/50">
+                        Mes que corresponde
+                        <input type="month" value={formAlq.mes} onChange={(e) => setFormAlq({ ...formAlq, mes: e.target.value })} className="mt-1 w-full px-3 py-1.5 rounded-lg border border-black/15 text-sm text-black" />
+                      </label>
+                    ) : (
+                      <label className="text-xs text-black/50">
+                        Fecha
+                        <input type="date" value={formAlq.fecha} onChange={(e) => setFormAlq({ ...formAlq, fecha: e.target.value })} className="mt-1 w-full px-3 py-1.5 rounded-lg border border-black/15 text-sm text-black" />
+                      </label>
+                    )}
+                    {formAlq.tipo === "pago" && (
+                      <label className="text-xs text-black/50">
+                        Medio
+                        <select value={formAlq.medio} onChange={(e) => setFormAlq({ ...formAlq, medio: e.target.value })} className="mt-1 w-full px-3 py-1.5 rounded-lg border border-black/15 text-sm text-black bg-white">
+                          {MEDIOS_PAGO_COLEGIO.map((m) => (
+                            <option key={m.id} value={m.id}>{m.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                    <label className="text-xs text-black/50">
+                      Nota (opcional)
+                      <input type="text" value={formAlq.nota} onChange={(e) => setFormAlq({ ...formAlq, nota: e.target.value })} className="mt-1 w-full px-3 py-1.5 rounded-lg border border-black/15 text-sm text-black" />
+                    </label>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={guardarFormAlq} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700">{formAlq.id ? "Guardar cambios" : "Guardar"}</button>
+                    <button onClick={() => setFormAlq(ALQ_FORM_VACIO)} className="px-3 py-1.5 rounded-lg border border-black/15 text-xs font-medium text-black/60 hover:bg-black/5">Cancelar</button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <h2 className="font-bold mb-2 text-sm">Movimientos</h2>
+            <div className="bg-white rounded-xl shadow-sm border border-black/5 divide-y divide-black/5">
+              {movimientosAlqConSaldo.length === 0 ? (
+                <p className="p-4 text-sm text-black/40">Todavía no hay movimientos. Empezá cargando el saldo inicial y los importes mensuales.</p>
+              ) : (
+                movimientosAlqConSaldo.map((m) => (
+                  <div key={m.id} className="p-3 flex items-center justify-between gap-2 text-sm">
+                    <div className="min-w-0">
+                      <p className="font-medium">
+                        {m.tipo === "pago" ? "Pago" + (m.medio ? " · " + nombreMedioColegio(m.medio) : "") : m.tipo === "cargo" ? "Importe de " + nombreMesAlq(m.mes) : "Saldo inicial"}
+                        {m.nota && <span className="text-black/50 font-normal"> · {m.nota}</span>}
+                      </p>
+                      <p className="text-xs text-black/40">
+                        {m.tipo === "cargo" ? "Mensual" : new Date(m.fecha).toLocaleDateString("es-AR")} · saldo después: <span className="font-mono">{money(m.saldoDespues)}</span>
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className={"font-mono font-semibold " + (m.tipo === "pago" ? "text-green-700" : "text-amber-800")}>
+                        {m.tipo === "pago" ? "-" : "+"}{money(m.monto)}
+                      </span>
+                      <button onClick={() => abrirFormAlq(m.tipo, m)} className="no-print w-7 h-7 rounded hover:bg-black/5 flex items-center justify-center text-black/40" title="Editar">
+                        <Pencil size={14} />
+                      </button>
+                      <button onClick={() => borrarMovAlq(m)} className="no-print w-7 h-7 rounded hover:bg-red-50 flex items-center justify-center text-red-400" title="Borrar">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         ) : tab === "ctaluciana" && usuario.rol === "dueno" ? (
           <div>
