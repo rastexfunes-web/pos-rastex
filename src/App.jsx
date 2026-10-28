@@ -315,9 +315,8 @@ export default function App() {
   const [abonoSelId, setAbonoSelId] = useState(null); // abono elegido en Vender
   const [verResumenEfectivo, setVerResumenEfectivo] = useState(false);
   // Cuenta corriente del alquiler de la fotocopiadora (solo dueño, doc "colegio-extras")
-  const ALQ_FORM_VACIO = { abierto: false, id: null, tipo: "pago", monto: "", fecha: "", mes: "", medio: "transferencia", nota: "" };
+  const ALQ_FORM_VACIO = { abierto: false, id: null, tipo: "pago", monto: "", fecha: "", mes: "", copias: "", medio: "transferencia", nota: "" };
   const [formAlq, setFormAlq] = useState(ALQ_FORM_VACIO);
-  const [mensualAlqEdit, setMensualAlqEdit] = useState(null);
   const [busquedaAbonoVenta, setBusquedaAbonoVenta] = useState("");
   const [anioAlquiler, setAnioAlquiler] = useState(new Date().getFullYear());
   const [movLuciana, setMovLuciana] = useState({ tipo: "pago", monto: "", concepto: "", fecha: todayKey(), deCaja: false });
@@ -1957,6 +1956,7 @@ export default function App() {
         monto: String(mov.monto),
         fecha: String(mov.fecha).slice(0, 10),
         mes: mov.mes || "",
+        copias: mov.copias ? String(mov.copias) : "",
         medio: mov.medio || "transferencia",
         nota: mov.nota || "",
       });
@@ -1969,7 +1969,7 @@ export default function App() {
       tipo,
       fecha: hoy,
       mes: hoy.slice(0, 7),
-      monto: tipo === "cargo" && alqFoto.mensual ? String(alqFoto.mensual) : "",
+      monto: "",
     });
   }
 
@@ -2005,7 +2005,7 @@ export default function App() {
       tipo: f.tipo,
       monto,
       fecha,
-      ...(f.tipo === "cargo" ? { mes: f.mes } : {}),
+      ...(f.tipo === "cargo" ? { mes: f.mes, ...(Number(f.copias) > 0 ? { copias: Math.round(Number(f.copias)) } : {}) } : {}),
       ...(f.tipo === "pago" ? { medio: f.medio } : {}),
       nota: f.nota.trim(),
     };
@@ -2019,15 +2019,6 @@ export default function App() {
     const que = m.tipo === "pago" ? "el pago" : m.tipo === "cargo" ? "el cargo de " + nombreMesAlq(m.mes) : "el saldo inicial";
     if (!window.confirm("¿Borrar " + que + " de " + money(m.monto) + "?")) return;
     guardarAlqFotocopia({ movimientos: movimientosAlq.filter((x) => x.id !== m.id) });
-  }
-
-  function guardarMensualAlq() {
-    const v = Number(String(mensualAlqEdit).replace(",", "."));
-    if (isNaN(v) || v < 0) {
-      alert("Ingresá un importe válido.");
-      return;
-    }
-    if (guardarAlqFotocopia({ mensual: v })) setMensualAlqEdit(null);
   }
 
   // ---- Resumen de caja: SOLO EFECTIVO (período de Informes, sin el filtro de facturación) ----
@@ -3527,7 +3518,7 @@ export default function App() {
             <div className="flex items-start justify-between gap-2 flex-wrap mb-4">
               <div>
                 <h1 className="text-xl font-bold">Alquiler de la fotocopiadora — {negocio.nombre}</h1>
-                <p className="text-xs text-black/40">Cuenta corriente: saldo inicial + importes mensuales − pagos = saldo.</p>
+                <p className="text-xs text-black/40">Cuenta corriente: saldo inicial + importe de cada mes (según las fotocopias sacadas) − pagos = saldo.</p>
               </div>
               <button onClick={() => window.print()} className="no-print flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-black/15 text-xs font-medium text-black/60 hover:bg-black/5">
                 <Printer size={14} /> Imprimir
@@ -3540,7 +3531,7 @@ export default function App() {
                 <p className="font-mono font-semibold text-sm">{money(alqInicial)}</p>
               </div>
               <div className="rounded-xl bg-white border border-black/5 shadow-sm p-3">
-                <p className="text-[11px] text-black/50">Importes mensuales</p>
+                <p className="text-[11px] text-black/50">Importes de los meses</p>
                 <p className="font-mono font-semibold text-sm">{money(alqCargosMensuales)}</p>
               </div>
               <div className="rounded-xl bg-green-50 border border-green-100 p-3">
@@ -3558,7 +3549,7 @@ export default function App() {
             <div className="no-print bg-white rounded-xl shadow-sm border border-black/5 p-4 mb-4">
               <div className="flex flex-wrap items-center gap-2 mb-3">
                 <button onClick={() => abrirFormAlq("cargo")} disabled={!extrasCargado} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50">
-                  + Cargar importe mensual
+                  + Cargar importe del mes
                 </button>
                 <button onClick={() => abrirFormAlq("pago")} disabled={!extrasCargado} className="px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-medium hover:bg-green-700 disabled:opacity-50">
                   + Registrar pago
@@ -3570,28 +3561,11 @@ export default function App() {
                 )}
               </div>
 
-              <div className="flex flex-wrap items-center gap-2 text-xs text-black/60">
-                <span>Importe mensual habitual:</span>
-                {mensualAlqEdit === null ? (
-                  <>
-                    <span className="font-mono font-semibold text-black">{alqFoto.mensual ? money(alqFoto.mensual) : "sin definir"}</span>
-                    <button onClick={() => setMensualAlqEdit(String(alqFoto.mensual || ""))} className="text-blue-600 hover:underline">cambiar</button>
-                  </>
-                ) : (
-                  <>
-                    <input type="number" inputMode="decimal" value={mensualAlqEdit} onChange={(e) => setMensualAlqEdit(e.target.value)} className="w-32 px-2 py-1 rounded-lg border border-black/15 text-sm font-mono text-black" />
-                    <button onClick={guardarMensualAlq} className="px-2 py-1 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700">Guardar</button>
-                    <button onClick={() => setMensualAlqEdit(null)} className="px-2 py-1 rounded-lg border border-black/15 hover:bg-black/5">Cancelar</button>
-                  </>
-                )}
-                <span className="text-black/40">(es solo el valor que se propone al cargar un mes; podés cambiarlo cada vez)</span>
-              </div>
-
               {formAlq.abierto && (
                 <div className="mt-3 rounded-lg border border-black/10 p-3 bg-black/[0.02]">
                   <p className="text-xs font-semibold mb-2">
                     {formAlq.id ? "Editar " : "Nuevo "}
-                    {formAlq.tipo === "pago" ? "pago" : formAlq.tipo === "cargo" ? "importe mensual" : "saldo inicial"}
+                    {formAlq.tipo === "pago" ? "pago" : formAlq.tipo === "cargo" ? "importe del mes" : "saldo inicial"}
                   </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
                     <label className="text-xs text-black/50">
@@ -3599,10 +3573,16 @@ export default function App() {
                       <input type="number" inputMode="decimal" value={formAlq.monto} onChange={(e) => setFormAlq({ ...formAlq, monto: e.target.value })} placeholder="0" className="mt-1 w-full px-3 py-1.5 rounded-lg border border-black/15 text-sm font-mono text-black" />
                     </label>
                     {formAlq.tipo === "cargo" ? (
-                      <label className="text-xs text-black/50">
-                        Mes que corresponde
-                        <input type="month" value={formAlq.mes} onChange={(e) => setFormAlq({ ...formAlq, mes: e.target.value })} className="mt-1 w-full px-3 py-1.5 rounded-lg border border-black/15 text-sm text-black" />
-                      </label>
+                      <>
+                        <label className="text-xs text-black/50">
+                          Mes que corresponde
+                          <input type="month" value={formAlq.mes} onChange={(e) => setFormAlq({ ...formAlq, mes: e.target.value })} className="mt-1 w-full px-3 py-1.5 rounded-lg border border-black/15 text-sm text-black" />
+                        </label>
+                        <label className="text-xs text-black/50">
+                          Fotocopias sacadas en el mes (opcional)
+                          <input type="number" inputMode="numeric" value={formAlq.copias} onChange={(e) => setFormAlq({ ...formAlq, copias: e.target.value })} placeholder="Ej: 4500" className="mt-1 w-full px-3 py-1.5 rounded-lg border border-black/15 text-sm font-mono text-black" />
+                        </label>
+                      </>
                     ) : (
                       <label className="text-xs text-black/50">
                         Fecha
@@ -3645,7 +3625,7 @@ export default function App() {
                         {m.nota && <span className="text-black/50 font-normal"> · {m.nota}</span>}
                       </p>
                       <p className="text-xs text-black/40">
-                        {m.tipo === "cargo" ? "Mensual" : new Date(m.fecha).toLocaleDateString("es-AR")} · saldo después: <span className="font-mono">{money(m.saldoDespues)}</span>
+                        {m.tipo === "cargo" ? (m.copias ? m.copias.toLocaleString("es-AR") + " fotocopias" : "Mensual") : new Date(m.fecha).toLocaleDateString("es-AR")} · saldo después: <span className="font-mono">{money(m.saldoDespues)}</span>
                       </p>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
