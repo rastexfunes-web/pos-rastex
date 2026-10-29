@@ -314,6 +314,7 @@ export default function App() {
   const [ajusteAbono, setAjusteAbono] = useState(null); // { id, monto, motivo }
   const [abonoSelId, setAbonoSelId] = useState(null); // abono elegido en Vender
   const [verResumenEfectivo, setVerResumenEfectivo] = useState(false);
+  const [editandoInicial, setEditandoInicial] = useState(null); // { tipo: "abierta" | "cierre", id?, texto }
   // Cuenta corriente del alquiler de la fotocopiadora (solo dueño, doc "colegio-extras")
   const ALQ_FORM_VACIO = { abierto: false, id: null, tipo: "pago", monto: "", fecha: "", mes: "", copias: "", medio: "transferencia", nota: "" };
   const [formAlq, setFormAlq] = useState(ALQ_FORM_VACIO);
@@ -867,6 +868,7 @@ export default function App() {
       horaApertura: caja.horaApertura,
       horaCierre: new Date().toISOString(),
       montoInicial: caja.montoInicial,
+      ...(caja.correccionInicial ? { correccionInicial: caja.correccionInicial } : {}),
       totalRetiros,
       efectivoFinal,
       ...resumenCaja,
@@ -2021,6 +2023,59 @@ export default function App() {
     guardarAlqFotocopia({ movimientos: movimientosAlq.filter((x) => x.id !== m.id) });
   }
 
+  // ---- Corrección del efectivo inicial (solo dueño) ----
+  function guardarCorreccionInicial() {
+    if (usuario.rol !== "dueno" || !editandoInicial) return;
+    const nuevo = Number(String(editandoInicial.texto).replace(",", "."));
+    if (editandoInicial.texto === "" || isNaN(nuevo) || nuevo < 0) {
+      alert("Ingresá un importe válido (0 o más).");
+      return;
+    }
+    const auditoria = (anterior) => ({ anterior, fecha: new Date().toISOString(), por: usuario.nombre || "" });
+    if (editandoInicial.tipo === "abierta") {
+      if (nuevo === caja.montoInicial) {
+        setEditandoInicial(null);
+        return;
+      }
+      persist({ ...negocioData, caja: { ...caja, montoInicial: nuevo, correccionInicial: auditoria(caja.montoInicial) } });
+    } else {
+      const cierres = (caja.cierres || []).map((c) =>
+        c.id === editandoInicial.id
+          ? {
+              ...c,
+              montoInicial: nuevo,
+              efectivoFinal: nuevo + (c.efectivo || 0) - (c.totalRetiros || 0),
+              correccionInicial: auditoria(c.montoInicial || 0),
+            }
+          : c
+      );
+      persist({ ...negocioData, caja: { ...caja, cierres } });
+    }
+    setEditandoInicial(null);
+  }
+
+  function editorInicial() {
+    return (
+      <div className="no-print mt-2 flex flex-wrap items-center gap-2">
+        <input
+          type="number"
+          inputMode="decimal"
+          autoFocus
+          value={editandoInicial.texto}
+          onChange={(e) => setEditandoInicial({ ...editandoInicial, texto: e.target.value })}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") guardarCorreccionInicial();
+          }}
+          placeholder="Efectivo inicial correcto"
+          className="w-40 px-3 py-1.5 rounded-lg border border-black/15 text-sm font-mono"
+        />
+        <button onClick={guardarCorreccionInicial} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700">Guardar</button>
+        <button onClick={() => setEditandoInicial(null)} className="px-3 py-1.5 rounded-lg border border-black/15 text-xs text-black/60 hover:bg-black/5">Cancelar</button>
+        {editandoInicial.tipo === "cierre" && <span className="text-[11px] text-black/40">Se recalcula también con cuánto quedó la caja.</span>}
+      </div>
+    );
+  }
+
   // ---- Resumen de caja: SOLO EFECTIVO (período de Informes, sin el filtro de facturación) ----
   const ventasPeriodoEfectivo = filtrarPorPeriodo(
     negocioData.ventas.filter((v) => v.tipoPago !== "colegio" && v.tipoPago !== "abono"),
@@ -2447,8 +2502,18 @@ export default function App() {
                   <p className="font-semibold text-sm mb-0.5">Caja abierta</p>
                   <p className="text-xs text-black/40">
                     Desde las {new Date(caja.horaApertura).toLocaleTimeString("es-AR")} · Efectivo inicial {money(caja.montoInicial)}
+                    {usuario.rol === "dueno" && !editandoInicial && (
+                      <button
+                        onClick={() => setEditandoInicial({ tipo: "abierta", texto: String(caja.montoInicial) })}
+                        className="no-print ml-1 text-blue-600 hover:underline"
+                      >
+                        corregir
+                      </button>
+                    )}
+                    {caja.correccionInicial && <span title={"Antes decía " + money(caja.correccionInicial.anterior)}> (corregido)</span>}
                     {" · "}Efectivo en caja ahora: <span className="font-semibold text-black/70">{money(efectivoDisponible)}</span>
                   </p>
+                  {editandoInicial && editandoInicial.tipo === "abierta" && editorInicial()}
                 </div>
                 <div className="flex items-center gap-2">
                   {!mostrarCierre && (
@@ -4399,11 +4464,17 @@ export default function App() {
                         {new Date(caja.horaApertura).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })})
                       </p>
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 font-mono">
-                        <span className="text-black/50">Inicial <b className="text-black">{money(caja.montoInicial || 0)}</b></span>
+                        <span className="text-black/50">
+                          Inicial <b className="text-black">{money(caja.montoInicial || 0)}</b>
+                          {usuario.rol === "dueno" && (
+                            <button onClick={() => setEditandoInicial({ tipo: "abierta", texto: String(caja.montoInicial || 0) })} className="no-print ml-1 text-blue-600 hover:underline font-sans">corregir</button>
+                          )}
+                        </span>
                         <span className="text-black/50">Cobrado <b className="text-emerald-700">{money(resumenCaja.efectivo || 0)}</b></span>
                         <span className="text-black/50">Retiros <b className="text-rose-700">-{money(totalRetiros)}</b></span>
                         <span className="text-black/50">Hay ahora <b className="text-black">{money(efectivoDisponible)}</b></span>
                       </div>
+                      {editandoInicial && editandoInicial.tipo === "abierta" && editorInicial()}
                     </div>
                   )}
                   {cierresPeriodo.length === 0 && !cajaAbiertaEnPeriodo ? (
@@ -4417,11 +4488,18 @@ export default function App() {
                           {new Date(c.horaCierre).toLocaleDateString("es-AR")} {new Date(c.horaCierre).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
                         </p>
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 font-mono">
-                          <span className="text-black/50">Inicial <b className="text-black">{money(c.montoInicial || 0)}</b></span>
+                          <span className="text-black/50">
+                            Inicial <b className="text-black">{money(c.montoInicial || 0)}</b>
+                            {c.correccionInicial && <span title={"Antes decía " + money(c.correccionInicial.anterior)}> *</span>}
+                            {usuario.rol === "dueno" && (
+                              <button onClick={() => setEditandoInicial({ tipo: "cierre", id: c.id, texto: String(c.montoInicial || 0) })} className="no-print ml-1 text-blue-600 hover:underline font-sans">corregir</button>
+                            )}
+                          </span>
                           <span className="text-black/50">Cobrado <b className="text-emerald-700">{money(c.efectivo || 0)}</b></span>
                           <span className="text-black/50">Retiros <b className="text-rose-700">-{money(c.totalRetiros || 0)}</b></span>
                           <span className="text-black/50">Quedó <b className="text-black">{money(c.efectivoFinal || 0)}</b></span>
                         </div>
+                        {editandoInicial && editandoInicial.tipo === "cierre" && editandoInicial.id === c.id && editorInicial()}
                       </div>
                     ))
                   )}
